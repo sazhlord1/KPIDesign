@@ -203,7 +203,7 @@ if st.session_state.step == "done":
     c4, c5, c6 = st.columns(3)
 
     c1.plotly_chart(pie_chart("قرمه سبزی", "🥬", ghorme, total, "#2ECC71"), True)
-    c2.plotly_chart(pie_chart("Omlet", "🥚", omlet, total, "#F1C40F"), True)
+    c2.plotly_chart(pie_chart("املت", "🥚", omlet, total, "#F1C40F"), True)
     c3.plotly_chart(pie_chart("برگر", "🍔", burger, total, "#E67E22"), True)
 
     c4.plotly_chart(pie_chart("ایراد طراح", "❌", designer_error, total, "#E74C3C"), True)
