@@ -5,7 +5,7 @@ import jdatetime
 from datetime import time
 
 # ======================
-# PAGE CONFIG
+# PAGE CONFIG (LIGHT MODE)
 # ======================
 st.set_page_config(
     page_title="Task Analytics Dashboard",
@@ -54,14 +54,12 @@ def clean_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
+    # Drop unwanted columns
     drop_letters = ["D","E","F","G","H","K","Q","R","S","T"]
-    drop_indexes = [
-        ord(l) - ord("A")
-        for l in drop_letters
-        if ord(l) - ord("A") < len(df.columns)
-    ]
+    drop_indexes = [ord(l) - ord("A") for l in drop_letters if ord(l) - ord("A") < len(df.columns)]
     df.drop(df.columns[drop_indexes], axis=1, inplace=True)
 
+    # Rename columns
     rename_map = {
         "شماره بریف": "Brief Number",
         "نام طراح": "Designer Name",
@@ -78,9 +76,11 @@ def clean_excel(uploaded_file):
     }
     df = df.rename(columns=lambda x: rename_map.get(x, x))
 
+    # Convert ONLY Deadline date
     if "Deadline - date" in df.columns:
         df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
 
+    # Replace Persian values
     replace_map = {
         "سبز": "Ghorme Sabzi",
         "قرمز": "Omlet",
@@ -100,13 +100,12 @@ def clean_excel(uploaded_file):
     if "Customer" in df.columns:
         df["Customer"] = df["Customer"].apply(normalize_customer)
 
+    # Keep Submission date as-is
     if "Submission date" in df.columns:
         df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
 
     if "Submission hour" in df.columns:
-        df["Submission hour"] = pd.to_datetime(
-            df["Submission hour"], errors="coerce"
-        ).dt.time
+        df["Submission hour"] = pd.to_datetime(df["Submission hour"], errors="coerce").dt.time
 
     return df
 
@@ -115,19 +114,18 @@ def pie_chart(title, emoji, value, total, color):
     fig = px.pie(
         names=[title, "سایر"],
         values=[value, max(total - value, 0)],
-        hole=0.4,
-        color_discrete_sequence=[color, "#ECECEC"]
+        hole=0.35,
+        color_discrete_sequence=[color, "#E5E5E5"]
     )
     fig.update_traces(
         textinfo="percent+value",
-        textfont_size=14,
+        textfont_size=15,
         pull=[0.08, 0]
     )
     fig.update_layout(
         title=f"{emoji} {title}",
         showlegend=False,
-        height=300,
-        margin=dict(t=60, b=10)
+        height=320
     )
     return fig
 
@@ -135,7 +133,7 @@ def pie_chart(title, emoji, value, total, color):
 # SIDEBAR
 # ======================
 with st.sidebar:
-    st.title("📊 KPI Dashboard")
+    st.title("📊 Dashboard")
     if st.session_state.step == "done":
         if st.button("🔄 شروع دوباره"):
             st.session_state.step = "upload"
@@ -147,21 +145,18 @@ with st.sidebar:
 # ======================
 if st.session_state.step == "upload":
     st.header("📤 آپلود فایل اکسل")
-    uploaded_file = st.file_uploader(
-        "فایل Exported را بارگذاری کنید",
-        type=["xlsx"]
-    )
+    uploaded_file = st.file_uploader("فایل اکسل را بارگذاری کنید", type=["xlsx"])
 
     if uploaded_file:
         st.session_state.df_clean = clean_excel(uploaded_file)
         st.session_state.step = "ready"
-        st.success("✅ فایل با موفقیت پاکسازی شد")
+        st.success("✅ فایل پاکسازی شد")
 
 # ======================
 # STEP 2 — READY
 # ======================
 if st.session_state.step == "ready":
-    st.header("⚙️ آماده محاسبه KPI")
+    st.header("⚙️ آماده تحلیل")
     if st.button("▶️ Calculate"):
         st.session_state.step = "done"
         st.rerun()
@@ -177,46 +172,17 @@ if st.session_state.step == "done":
     min_d = df["Submission date"].min()
     max_d = df["Submission date"].max()
 
-    st.subheader("📅 بازه تحلیل و انتخاب تعطیلات")
+    start_date, end_date = st.date_input(
+        "بازه زمانی",
+        value=(min_d, max_d)
+    )
 
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        start_date, end_date = st.date_input(
-            "بازه تحلیل",
-            value=(min_d, max_d)
-        )
-
-    with col2:
-        holidays = st.date_input(
-            "روزهای تعطیل (چند روز تکی)",
-            value=[],
-            help="می‌توانید چند روز جداگانه انتخاب کنید"
-        )
-
-    if not isinstance(holidays, list):
-        holidays = [holidays]
-
-    # --- Filter by range
     df = df[
         (df["Submission date"] >= pd.to_datetime(start_date)) &
         (df["Submission date"] <= pd.to_datetime(end_date))
     ]
 
-    # --- Apply holiday exclusion (ONLY inside range)
-    valid_holidays = [
-        d for d in holidays
-        if start_date <= d <= end_date
-    ]
-
-    if valid_holidays:
-        df = df[~df["Submission date"].dt.date.isin(valid_holidays)]
-
     total = len(df)
-
-    if total == 0:
-        st.warning("⚠️ دیتایی در این بازه (پس از حذف تعطیلات) وجود ندارد")
-        st.stop()
 
     ghorme = (df["Type"] == "Ghorme Sabzi").sum()
     omlet = (df["Type"] == "Omlet").sum()
@@ -229,7 +195,7 @@ if st.session_state.step == "done":
     revision_2 = (df["Edit count"] >= 2).sum()
 
     late = df[
-        (df["Submission hour"] >= time(18, 0)) |
+        (df["Submission hour"] > time(18, 0)) |
         (df["Submission date"].dt.weekday >= 3)
     ].shape[0]
 
