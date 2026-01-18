@@ -5,7 +5,7 @@ import jdatetime
 from datetime import time
 
 # ======================
-# PAGE CONFIG (LIGHT MODE)
+# PAGE CONFIG
 # ======================
 st.set_page_config(
     page_title="Task Analytics Dashboard",
@@ -54,7 +54,6 @@ def clean_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
-    # Drop unwanted columns
     drop_letters = ["D","E","F","G","H","K","Q","R","S","T"]
     drop_indexes = [
         ord(l) - ord("A")
@@ -63,7 +62,6 @@ def clean_excel(uploaded_file):
     ]
     df.drop(df.columns[drop_indexes], axis=1, inplace=True)
 
-    # Rename columns
     rename_map = {
         "شماره بریف": "Brief Number",
         "نام طراح": "Designer Name",
@@ -80,11 +78,9 @@ def clean_excel(uploaded_file):
     }
     df = df.rename(columns=lambda x: rename_map.get(x, x))
 
-    # Convert ONLY Deadline date
     if "Deadline - date" in df.columns:
         df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
 
-    # Replace Persian values
     replace_map = {
         "سبز": "Ghorme Sabzi",
         "قرمز": "Omlet",
@@ -104,7 +100,6 @@ def clean_excel(uploaded_file):
     if "Customer" in df.columns:
         df["Customer"] = df["Customer"].apply(normalize_customer)
 
-    # Keep Submission date as-is (Gregorian)
     if "Submission date" in df.columns:
         df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
 
@@ -182,7 +177,7 @@ if st.session_state.step == "done":
     min_d = df["Submission date"].min()
     max_d = df["Submission date"].max()
 
-    st.subheader("📅 تنظیم بازه و تعطیلات")
+    st.subheader("📅 بازه تحلیل و انتخاب تعطیلات")
 
     col1, col2 = st.columns([2, 1])
 
@@ -194,27 +189,33 @@ if st.session_state.step == "done":
 
     with col2:
         holidays = st.date_input(
-            "روزهای تعطیل",
+            "روزهای تعطیل (چند روز تکی)",
             value=[],
-            help="این روزها از محاسبات KPI حذف می‌شوند"
+            help="می‌توانید چند روز جداگانه انتخاب کنید"
         )
 
     if not isinstance(holidays, list):
         holidays = [holidays]
 
-    # Apply filters
+    # --- Filter by range
     df = df[
         (df["Submission date"] >= pd.to_datetime(start_date)) &
         (df["Submission date"] <= pd.to_datetime(end_date))
     ]
 
-    if holidays:
-        df = df[~df["Submission date"].dt.date.isin(holidays)]
+    # --- Apply holiday exclusion (ONLY inside range)
+    valid_holidays = [
+        d for d in holidays
+        if start_date <= d <= end_date
+    ]
+
+    if valid_holidays:
+        df = df[~df["Submission date"].dt.date.isin(valid_holidays)]
 
     total = len(df)
 
     if total == 0:
-        st.warning("⚠️ دیتایی در این بازه وجود ندارد")
+        st.warning("⚠️ دیتایی در این بازه (پس از حذف تعطیلات) وجود ندارد")
         st.stop()
 
     ghorme = (df["Type"] == "Ghorme Sabzi").sum()
