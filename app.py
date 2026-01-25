@@ -54,7 +54,6 @@ def clean_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
-    # Drop unwanted columns
     drop_letters = ["D","E","F","G","H","K","Q","R","S","T"]
     drop_indexes = [
         ord(l) - ord("A")
@@ -63,7 +62,6 @@ def clean_excel(uploaded_file):
     ]
     df.drop(df.columns[drop_indexes], axis=1, inplace=True)
 
-    # Rename columns
     rename_map = {
         "شماره بریف": "Brief Number",
         "نام طراح": "Designer Name",
@@ -80,11 +78,9 @@ def clean_excel(uploaded_file):
     }
     df = df.rename(columns=lambda x: rename_map.get(x, x))
 
-    # Convert ONLY Deadline date
     if "Deadline - date" in df.columns:
         df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
 
-    # Replace Persian values
     replace_map = {
         "سبز": "Ghorme Sabzi",
         "قرمز": "Omlet",
@@ -104,7 +100,6 @@ def clean_excel(uploaded_file):
     if "Customer" in df.columns:
         df["Customer"] = df["Customer"].apply(normalize_customer)
 
-    # Keep Submission date as-is (Gregorian)
     if "Submission date" in df.columns:
         df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
 
@@ -196,20 +191,16 @@ if st.session_state.step == "done":
         holidays = st.date_input(
             "روزهای تعطیل",
             value=[],
-            help="این روزها از محاسبات KPI حذف می‌شوند"
+            help="این روزها به‌عنوان تعطیل در KPI دیرفرستاده‌ها لحاظ می‌شوند"
         )
 
     if not isinstance(holidays, list):
         holidays = [holidays]
 
-    # Apply filters
     df = df[
         (df["Submission date"] >= pd.to_datetime(start_date)) &
         (df["Submission date"] <= pd.to_datetime(end_date))
     ]
-
-    if holidays:
-        df = df[~df["Submission date"].dt.date.isin(holidays)]
 
     total = len(df)
 
@@ -229,7 +220,7 @@ if st.session_state.step == "done":
 
     late = df[
         (df["Submission hour"] >= time(18, 0)) |
-        (df["Submission date"].dt.weekday >= 3)
+        (df["Submission date"].dt.date.isin(holidays))
     ].shape[0]
 
     c1, c2, c3 = st.columns(3)
