@@ -22,6 +22,9 @@ if "step" not in st.session_state:
 if "df_clean" not in st.session_state:
     st.session_state.df_clean = None
 
+if "holidays" not in st.session_state:
+    st.session_state.holidays = []
+
 # ======================
 # HELPERS
 # ======================
@@ -140,6 +143,7 @@ with st.sidebar:
         if st.button("🔄 شروع دوباره"):
             st.session_state.step = "upload"
             st.session_state.df_clean = None
+            st.session_state.holidays = []
             st.rerun()
 
 # ======================
@@ -188,14 +192,20 @@ if st.session_state.step == "done":
         )
 
     with col2:
-        holidays = st.date_input(
-            "روزهای تعطیل",
-            value=[],
-            help="این روزها به‌عنوان تعطیل در KPI دیرفرستاده‌ها لحاظ می‌شوند"
+        selected_day = st.date_input(
+            "انتخاب روز تعطیل",
+            value=None
         )
 
-    if not isinstance(holidays, list):
-        holidays = [holidays]
+        if st.button("➕ افزودن روز تعطیل"):
+            if selected_day and selected_day not in st.session_state.holidays:
+                st.session_state.holidays.append(selected_day)
+
+        holidays = st.multiselect(
+            "روزهای تعطیل انتخاب‌شده",
+            options=st.session_state.holidays,
+            default=st.session_state.holidays
+        )
 
     df = df[
         (df["Submission date"] >= pd.to_datetime(start_date)) &
