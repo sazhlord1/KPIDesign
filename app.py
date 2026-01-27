@@ -74,7 +74,6 @@ def clean_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
-    # Columns to DROP (based on new Excel structure)
     drop_letters = ["B","E","F","G","H","I","L","R","S","T","U"]
     drop_indexes = [
         ord(l) - ord("A")
@@ -99,14 +98,9 @@ def clean_excel(uploaded_file):
 
     df = df.rename(columns=lambda x: rename_map.get(x, x))
 
-    if "Designer Name" in df.columns:
-        df["Designer Name"] = df["Designer Name"].apply(normalize_designer)
-
-    if "Customer" in df.columns:
-        df["Customer"] = df["Customer"].apply(normalize_customer)
-
-    if "Deadline - date" in df.columns:
-        df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
+    df["Designer Name"] = df["Designer Name"].apply(normalize_designer)
+    df["Customer"] = df["Customer"].apply(normalize_customer)
+    df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
 
     replace_map = {
         "سبز": "Ghorme Sabzi",
@@ -121,30 +115,35 @@ def clean_excel(uploaded_file):
     }
 
     for col in ["Type", "Reason"]:
-        if col in df.columns:
-            df[col] = df[col].replace(replace_map)
+        df[col] = df[col].replace(replace_map)
 
-    if "Submission date" in df.columns:
-        df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
-
-    if "Submission hour" in df.columns:
-        df["Submission hour"] = pd.to_datetime(
-            df["Submission hour"], errors="coerce"
-        ).dt.time
+    df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
+    df["Submission hour"] = pd.to_datetime(
+        df["Submission hour"], errors="coerce"
+    ).dt.time
 
     return df
 
 
-def pie_chart(title, emoji, value, total, color):
+# ======================
+# CHART
+# ======================
+def pie_chart(title, value, total, color):
     fig = px.pie(
-        names=[title, "سایر"],
+        names=[title, "Others"],
         values=[value, max(total - value, 0)],
-        hole=0.4,
+        hole=0.45,
         color_discrete_sequence=[color, "#ECECEC"]
     )
-    fig.update_traces(textinfo="percent+value", pull=[0.08, 0])
-    fig.update_layout(showlegend=False, height=300)
+    fig.update_traces(textinfo="percent+value", pull=[0.07, 0])
+    fig.update_layout(showlegend=False, height=260)
     return fig
+
+
+def chart_block(col, title, emoji, fig):
+    with col:
+        st.markdown(f"### {emoji} {title}")
+        st.plotly_chart(fig, use_container_width=True)
 
 
 # ======================
@@ -182,7 +181,7 @@ if st.session_state.step == "ready":
         st.rerun()
 
 # ======================
-# STEP 3 — ANALYSIS
+# STEP 3 — KPI
 # ======================
 if st.session_state.step == "done":
     df_all = st.session_state.df_clean.copy()
@@ -192,20 +191,20 @@ if st.session_state.step == "done":
 
     st.subheader("📅 تنظیم بازه و تعطیلات")
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
+    c1, c2 = st.columns([2, 1])
+    with c1:
         start_date, end_date = st.date_input(
             "بازه تحلیل", value=(min_d, max_d)
         )
 
-    with col2:
-        selected_day = st.date_input("انتخاب روز تعطیل", value=None)
-        if st.button("➕ افزودن روز تعطیل"):
+    with c2:
+        selected_day = st.date_input("روز تعطیل", value=None)
+        if st.button("➕ افزودن"):
             if selected_day and selected_day not in st.session_state.holidays:
                 st.session_state.holidays.append(selected_day)
 
         holidays = st.multiselect(
-            "روزهای تعطیل",
+            "تعطیلات",
             options=st.session_state.holidays,
             default=st.session_state.holidays
         )
@@ -251,38 +250,46 @@ if st.session_state.step == "done":
             (df["Submission date"].dt.date.isin(holidays))
         ].shape[0]
 
-        c1, c2, c3 = st.columns(3)
-        c4, c5, c6 = st.columns(3)
+        r1 = st.columns(3)
+        r2 = st.columns(3)
 
-        c1.plotly_chart(pie_chart("قرمه سبزی", "🥬", ghorme, total, "#2ECC71"), True)
-        c2.plotly_chart(pie_chart("املت", "🥚", omlet, total, "#F1C40F"), True)
-        c3.plotly_chart(pie_chart("برگر", "🍔", burger, total, "#E67E22"), True)
+        chart_block(r1[0], "Ghorme Sabzi Ratio", "🥬",
+                    pie_chart("Ghorme Sabzi", ghorme, total, "#2ECC71"))
 
-        c4.plotly_chart(pie_chart("ایراد طراح", "❌", designer_error, total, "#E74C3C"), True)
-        c5.plotly_chart(pie_chart("بیش از ۲ ویرایش", "❌❌", revision_2, total, "#8E44AD"), True)
-        c6.plotly_chart(pie_chart("دیرفرستاده‌ها", "🧳", late, total, "#34495E"), True)
+        chart_block(r1[1], "Omlet Ratio", "🥚",
+                    pie_chart("Omlet", omlet, total, "#F1C40F"))
 
-    # Team KPI
+        chart_block(r1[2], "Burger Ratio", "🍔",
+                    pie_chart("Burger", burger, total, "#E67E22"))
+
+        chart_block(r2[0], "Designer Error Rate", "❌",
+                    pie_chart("Designer Error", designer_error, total, "#E74C3C"))
+
+        chart_block(r2[1], "More Than 2 Revisions", "🔁",
+                    pie_chart("2+ Revisions", revision_2, total, "#8E44AD"))
+
+        chart_block(r2[2], "Late Submissions", "⏰",
+                    pie_chart("Late", late, total, "#34495E"))
+
+    # TEAM KPI
     with tabs[0]:
         render_kpi(df_all)
 
-    # Individual KPI Tabs
+    # INDIVIDUAL KPI
     for i, name in enumerate(["Sajad", "Romina", "Melika", "Fatemeh"], start=1):
         with tabs[i]:
             if not st.session_state.auth_ok.get(name, False):
                 pwd = st.text_input(
-                    f"پسورد {name} KPI",
+                    f"پسورد {name}",
                     type="password",
                     key=f"pwd_{name}"
                 )
-                st.warning("⚠️ پسورد خودتونو در اختیار بقیه قرار ندید")
+                st.warning("⚠️ پسورد شخصی است")
                 if st.button("ورود", key=f"btn_{name}"):
                     if pwd == passwords[name]:
                         st.session_state.auth_ok[name] = True
                         st.rerun()
                     else:
                         st.error("❌ پسورد اشتباه است")
-                        st.info("🔙 بازگشت به Team KPI")
             else:
-                df_person = df_all[df_all["Designer Name"] == name]
-                render_kpi(df_person)
+                render_kpi(df_all[df_all["Designer Name"] == name])
