@@ -330,6 +330,7 @@ if st.session_state.step == "done":
             chart_block(r2[1], "More Than 2 Revisions", "🔁", pie_chart("2+ Revisions", revision_2, total, "#8E44AD"))
             chart_block(r2[2], "Late Submissions", "⏰", pie_chart("Late", late, total, "#34495E"))
 
+
         with tabs[0]:
             render_kpi(df_all)
 
