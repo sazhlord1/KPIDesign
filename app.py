@@ -150,7 +150,7 @@ def pie_chart(title, value, total, color):
         names=[title, "Others"],
         values=[value, max(total - value, 0)],
         hole=0.45,
-        color_discrete_sequence=["#ECECEC", color]
+        color_discrete_sequence=[color, "#ECECEC"]
     )
     fig.update_traces(textinfo="percent+value", pull=[0.07, 0])
     fig.update_layout(showlegend=False, height=260)
