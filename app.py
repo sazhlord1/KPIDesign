@@ -212,6 +212,10 @@ if st.session_state.step == "done":
     if st.session_state.active_page == "quests":
         st.header("🗡️ Quest Management")
 
+        if st.button("⬅️ بازگشت به داشبورد KPI"):
+            st.session_state.active_page = "kpi"
+            st.rerun()
+
         quests = load_quests()
         tab1, tab2, tab3 = st.tabs(["➕ New Quest", "📜 All Quests", "🎯 My Quests"])
 
