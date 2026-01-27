@@ -34,6 +34,9 @@ if "auth_ok" not in st.session_state:
 if "active_page" not in st.session_state:
     st.session_state.active_page = "kpi"
 
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
+
 # ======================
 # QUEST STORAGE
 # ======================
@@ -115,7 +118,6 @@ def clean_excel(uploaded_file):
     }
 
     df = df.rename(columns=lambda x: rename_map.get(x, x))
-
     df["Designer Name"] = df["Designer Name"].apply(normalize_designer)
     df["Customer"] = df["Customer"].apply(normalize_customer)
     df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
@@ -136,9 +138,7 @@ def clean_excel(uploaded_file):
         df[col] = df[col].replace(replace_map)
 
     df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
-    df["Submission hour"] = pd.to_datetime(
-        df["Submission hour"], errors="coerce"
-    ).dt.time
+    df["Submission hour"] = pd.to_datetime(df["Submission hour"], errors="coerce").dt.time
 
     return df
 
@@ -166,6 +166,7 @@ def chart_block(col, title, emoji, fig):
 # ======================
 with st.sidebar:
     st.title("📊 KPI Dashboard")
+
     if st.session_state.step == "done":
         if st.button("🔄 شروع دوباره"):
             st.session_state.step = "upload"
@@ -173,9 +174,10 @@ with st.sidebar:
             st.session_state.holidays = []
             st.session_state.auth_ok = {}
             st.session_state.active_page = "kpi"
+            st.session_state.current_user = None
             st.rerun()
 
-        if st.session_state.auth_ok.get("Sajad", False):
+        if st.session_state.current_user:
             if st.button("🗡️ Quests"):
                 st.session_state.active_page = "quests"
                 st.rerun()
@@ -210,54 +212,61 @@ if st.session_state.step == "done":
     # QUEST PAGE
     # ======================
     if st.session_state.active_page == "quests":
-        st.header("🗡️ Quest Management")
+        st.header("🗡️ Quests")
 
         if st.button("⬅️ بازگشت به داشبورد KPI"):
             st.session_state.active_page = "kpi"
             st.rerun()
 
         quests = load_quests()
-        tab1, tab2, tab3 = st.tabs(["➕ New Quest", "📜 All Quests", "🎯 My Quests"])
+        user = st.session_state.current_user
 
-        with tab1:
-            st.subheader("➕ Create New Quest")
-            name = st.text_input("Name the new quest")
-            desc = st.text_area("What describes the quest the best?")
-            deadline = st.date_input("Pose a new deadline", value=date.today())
-            owner = st.selectbox("Assign to", ["Sajad", "Romina", "Melika", "Fatemeh"])
-            if st.button("Finish"):
-                quests.append({
-                    "id": str(uuid.uuid4()),
-                    "name": name,
-                    "description": desc,
-                    "deadline": str(deadline),
-                    "owner": owner,
-                    "done": False
-                })
+        if user == "Sajad":
+            tab1, tab2, tab3 = st.tabs(["➕ New Quest", "📜 All Quests", "🎯 My Quests"])
+
+            with tab1:
+                name = st.text_input("Name the new quest")
+                desc = st.text_area("What describes the quest the best?")
+                deadline = st.date_input("Pose a new deadline", value=date.today())
+                owner = st.selectbox("Assign to", ["Sajad", "Romina", "Melika", "Fatemeh"])
+                if st.button("Finish"):
+                    quests.append({
+                        "id": str(uuid.uuid4()),
+                        "name": name,
+                        "description": desc,
+                        "deadline": str(deadline),
+                        "owner": owner,
+                        "done": False
+                    })
+                    save_quests(quests)
+                    st.success("✅ Quest added")
+
+            with tab2:
+                who = st.selectbox("🗡️ Whose Quests you want to see?", ["Sajad", "Romina", "Melika", "Fatemeh"])
+                for q in [x for x in quests if x["owner"] == who]:
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        st.markdown(f"### {q['name']}")
+                        st.caption(q["description"])
+                        st.write(f"⏰ {q['deadline']}")
+                    with col2:
+                        if st.checkbox("Done", value=q["done"], key=q["id"]):
+                            q["done"] = True
+                        if st.button("🗑️ Delete", key="del"+q["id"]):
+                            quests.remove(q)
+                            save_quests(quests)
+                            st.rerun()
                 save_quests(quests)
-                st.success("✅ Quest added")
 
-        with tab2:
-            st.subheader("📜 All Quests")
-            who = st.selectbox("🗡️ Whose Quests you want to see?", ["Sajad", "Romina", "Melika", "Fatemeh"])
-            for q in [x for x in quests if x["owner"] == who]:
-                col1, col2 = st.columns([5, 1])
-                with col1:
+            with tab3:
+                for q in [x for x in quests if x["owner"] == "Sajad"]:
                     st.markdown(f"### {q['name']}")
                     st.caption(q["description"])
-                    st.write(f"⏰ Deadline: {q['deadline']}")
-                with col2:
-                    if st.checkbox("Done", value=q["done"], key=q["id"]):
-                        q["done"] = True
-                    if st.button("🗑️ Delete", key="del"+q["id"]):
-                        quests.remove(q)
-                        save_quests(quests)
-                        st.rerun()
-            save_quests(quests)
+                    st.write(f"⏰ {q['deadline']} | {'✅ Done' if q['done'] else '⬜ Pending'}")
 
-        with tab3:
+        else:
             st.subheader("🎯 My Quests")
-            for q in [x for x in quests if x["owner"] == "Sajad"]:
+            for q in [x for x in quests if x["owner"] == user]:
                 st.markdown(f"### {q['name']}")
                 st.caption(q["description"])
                 st.write(f"⏰ {q['deadline']} | {'✅ Done' if q['done'] else '⬜ Pending'}")
@@ -332,6 +341,7 @@ if st.session_state.step == "done":
                     if st.button("ورود", key=f"btn_{name}"):
                         if pwd == passwords[name]:
                             st.session_state.auth_ok[name] = True
+                            st.session_state.current_user = name
                             st.rerun()
                         else:
                             st.error("❌ پسورد اشتباه است")
