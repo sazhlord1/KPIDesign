@@ -5,7 +5,7 @@ import jdatetime
 from datetime import time
 
 # ======================
-# PAGE CONFIG (LIGHT MODE)
+# PAGE CONFIG
 # ======================
 st.set_page_config(
     page_title="Task Analytics Dashboard",
@@ -24,6 +24,9 @@ if "df_clean" not in st.session_state:
 
 if "holidays" not in st.session_state:
     st.session_state.holidays = []
+
+if "auth_ok" not in st.session_state:
+    st.session_state.auth_ok = {}
 
 # ======================
 # HELPERS
@@ -53,11 +56,26 @@ def normalize_customer(val):
     return val
 
 
+def normalize_designer(val):
+    mapping = {
+        "ملیکا عرب زاده": "Melika",
+        "ملیکا عرب‌زاده": "Melika",
+        "رومینا": "Romina",
+        "سجاد": "Sajad",
+        "فاطمه": "Fatemeh"
+    }
+    return mapping.get(str(val).strip(), val)
+
+
+# ======================
+# CLEAN EXCEL
+# ======================
 def clean_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
-    drop_letters = ["D","E","F","G","H","K","Q","R","S","T"]
+    # Columns to DROP (based on new Excel structure)
+    drop_letters = ["B","E","F","G","H","I","L","R","S","T","U"]
     drop_indexes = [
         ord(l) - ord("A")
         for l in drop_letters
@@ -70,7 +88,6 @@ def clean_excel(uploaded_file):
         "نام طراح": "Designer Name",
         "درخواست کننده": "Customer",
         "درخواست‌کننده": "Customer",
-        "درخواست كننده": "Customer",
         "تاریخ ددلاین": "Deadline - date",
         "ساعت ددلاین": "Hour",
         "نوع کاور": "Type",
@@ -79,7 +96,14 @@ def clean_excel(uploaded_file):
         "زمان ثبت بریف - تاریخ": "Submission date",
         "زمان ثبت بریف - ساعت": "Submission hour"
     }
+
     df = df.rename(columns=lambda x: rename_map.get(x, x))
+
+    if "Designer Name" in df.columns:
+        df["Designer Name"] = df["Designer Name"].apply(normalize_designer)
+
+    if "Customer" in df.columns:
+        df["Customer"] = df["Customer"].apply(normalize_customer)
 
     if "Deadline - date" in df.columns:
         df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
@@ -100,9 +124,6 @@ def clean_excel(uploaded_file):
         if col in df.columns:
             df[col] = df[col].replace(replace_map)
 
-    if "Customer" in df.columns:
-        df["Customer"] = df["Customer"].apply(normalize_customer)
-
     if "Submission date" in df.columns:
         df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
 
@@ -121,18 +142,10 @@ def pie_chart(title, emoji, value, total, color):
         hole=0.4,
         color_discrete_sequence=[color, "#ECECEC"]
     )
-    fig.update_traces(
-        textinfo="percent+value",
-        textfont_size=14,
-        pull=[0.08, 0]
-    )
-    fig.update_layout(
-        title=f"{emoji} {title}",
-        showlegend=False,
-        height=300,
-        margin=dict(t=60, b=10)
-    )
+    fig.update_traces(textinfo="percent+value", pull=[0.08, 0])
+    fig.update_layout(showlegend=False, height=300)
     return fig
+
 
 # ======================
 # SIDEBAR
@@ -144,6 +157,7 @@ with st.sidebar:
             st.session_state.step = "upload"
             st.session_state.df_clean = None
             st.session_state.holidays = []
+            st.session_state.auth_ok = {}
             st.rerun()
 
 # ======================
@@ -151,10 +165,7 @@ with st.sidebar:
 # ======================
 if st.session_state.step == "upload":
     st.header("📤 آپلود فایل اکسل")
-    uploaded_file = st.file_uploader(
-        "فایل Exported را بارگذاری کنید",
-        type=["xlsx"]
-    )
+    uploaded_file = st.file_uploader("فایل Exported را بارگذاری کنید", type=["xlsx"])
 
     if uploaded_file:
         st.session_state.df_clean = clean_excel(uploaded_file)
@@ -174,72 +185,104 @@ if st.session_state.step == "ready":
 # STEP 3 — ANALYSIS
 # ======================
 if st.session_state.step == "done":
-    df = st.session_state.df_clean.copy()
+    df_all = st.session_state.df_clean.copy()
 
-    st.header("📈 تحلیل تسک‌ها")
-
-    min_d = df["Submission date"].min()
-    max_d = df["Submission date"].max()
+    min_d = df_all["Submission date"].min()
+    max_d = df_all["Submission date"].max()
 
     st.subheader("📅 تنظیم بازه و تعطیلات")
 
     col1, col2 = st.columns([2, 1])
-
     with col1:
         start_date, end_date = st.date_input(
-            "بازه تحلیل",
-            value=(min_d, max_d)
+            "بازه تحلیل", value=(min_d, max_d)
         )
 
     with col2:
-        selected_day = st.date_input(
-            "انتخاب روز تعطیل",
-            value=None
-        )
-
+        selected_day = st.date_input("انتخاب روز تعطیل", value=None)
         if st.button("➕ افزودن روز تعطیل"):
             if selected_day and selected_day not in st.session_state.holidays:
                 st.session_state.holidays.append(selected_day)
 
         holidays = st.multiselect(
-            "روزهای تعطیل انتخاب‌شده",
+            "روزهای تعطیل",
             options=st.session_state.holidays,
             default=st.session_state.holidays
         )
 
-    df = df[
-        (df["Submission date"] >= pd.to_datetime(start_date)) &
-        (df["Submission date"] <= pd.to_datetime(end_date))
+    df_all = df_all[
+        (df_all["Submission date"] >= pd.to_datetime(start_date)) &
+        (df_all["Submission date"] <= pd.to_datetime(end_date))
     ]
 
-    total = len(df)
+    tabs = st.tabs([
+        "Team KPI",
+        "Sajad KPI",
+        "Romina KPI",
+        "Melika KPI",
+        "Fatemeh KPI"
+    ])
 
-    if total == 0:
-        st.warning("⚠️ دیتایی در این بازه وجود ندارد")
-        st.stop()
+    passwords = {
+        "Sajad": "2232245",
+        "Romina": "112131",
+        "Melika": "122232",
+        "Fatemeh": "132333"
+    }
 
-    ghorme = (df["Type"] == "Ghorme Sabzi").sum()
-    omlet = (df["Type"] == "Omlet").sum()
-    burger = (df["Type"] == "Burger").sum()
+    def render_kpi(df):
+        total = len(df)
+        if total == 0:
+            st.warning("⚠️ دیتایی وجود ندارد")
+            return
 
-    designer_error = df["Reason"].isin(
-        ["Designer Error", "Team-lead: Designer Error"]
-    ).sum()
+        ghorme = (df["Type"] == "Ghorme Sabzi").sum()
+        omlet = (df["Type"] == "Omlet").sum()
+        burger = (df["Type"] == "Burger").sum()
 
-    revision_2 = (df["Edit count"] >= 2).sum()
+        designer_error = df["Reason"].isin(
+            ["Designer Error", "Team-lead: Designer Error"]
+        ).sum()
 
-    late = df[
-        (df["Submission hour"] >= time(18, 0)) |
-        (df["Submission date"].dt.date.isin(holidays))
-    ].shape[0]
+        revision_2 = (df["Edit count"] >= 2).sum()
 
-    c1, c2, c3 = st.columns(3)
-    c4, c5, c6 = st.columns(3)
+        late = df[
+            (df["Submission hour"] >= time(18, 0)) |
+            (df["Submission date"].dt.date.isin(holidays))
+        ].shape[0]
 
-    c1.plotly_chart(pie_chart("قرمه سبزی", "🥬", ghorme, total, "#2ECC71"), True)
-    c2.plotly_chart(pie_chart("املت", "🥚", omlet, total, "#F1C40F"), True)
-    c3.plotly_chart(pie_chart("برگر", "🍔", burger, total, "#E67E22"), True)
+        c1, c2, c3 = st.columns(3)
+        c4, c5, c6 = st.columns(3)
 
-    c4.plotly_chart(pie_chart("ایراد طراح", "❌", designer_error, total, "#E74C3C"), True)
-    c5.plotly_chart(pie_chart("ایراد طراح بیشتر از ۲بار", "❌❌", revision_2, total, "#8E44AD"), True)
-    c6.plotly_chart(pie_chart("دیرفرستاده‌ها", "🧳", late, total, "#34495E"), True)
+        c1.plotly_chart(pie_chart("قرمه سبزی", "🥬", ghorme, total, "#2ECC71"), True)
+        c2.plotly_chart(pie_chart("املت", "🥚", omlet, total, "#F1C40F"), True)
+        c3.plotly_chart(pie_chart("برگر", "🍔", burger, total, "#E67E22"), True)
+
+        c4.plotly_chart(pie_chart("ایراد طراح", "❌", designer_error, total, "#E74C3C"), True)
+        c5.plotly_chart(pie_chart("بیش از ۲ ویرایش", "❌❌", revision_2, total, "#8E44AD"), True)
+        c6.plotly_chart(pie_chart("دیرفرستاده‌ها", "🧳", late, total, "#34495E"), True)
+
+    # Team KPI
+    with tabs[0]:
+        render_kpi(df_all)
+
+    # Individual KPI Tabs
+    for i, name in enumerate(["Sajad", "Romina", "Melika", "Fatemeh"], start=1):
+        with tabs[i]:
+            if not st.session_state.auth_ok.get(name, False):
+                pwd = st.text_input(
+                    f"پسورد {name} KPI",
+                    type="password",
+                    key=f"pwd_{name}"
+                )
+                st.warning("⚠️ پسورد خودتونو در اختیار بقیه قرار ندید")
+                if st.button("ورود", key=f"btn_{name}"):
+                    if pwd == passwords[name]:
+                        st.session_state.auth_ok[name] = True
+                        st.rerun()
+                    else:
+                        st.error("❌ پسورد اشتباه است")
+                        st.info("🔙 بازگشت به Team KPI")
+            else:
+                df_person = df_all[df_all["Designer Name"] == name]
+                render_kpi(df_person)
