@@ -2,43 +2,16 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import jdatetime
-import json
-import os
-from datetime import time, date
+from datetime import time
 
 # ======================
-# CONFIG
+# PAGE CONFIG
 # ======================
 st.set_page_config(
     page_title="Task Analytics Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-QUEST_FILE = "quests.json"
-
-PASSWORDS = {
-    "Sajad": "2232245",
-    "Romina": "112131",
-    "Melika": "122232",
-    "Fatemeh": "132333"
-}
-
-DESIGNERS = ["Sajad", "Romina", "Melika", "Fatemeh"]
-
-# ======================
-# QUEST STORAGE
-# ======================
-def load_quests():
-    if not os.path.exists(QUEST_FILE):
-        with open(QUEST_FILE, "w", encoding="utf-8") as f:
-            json.dump([], f)
-    with open(QUEST_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_quests(data):
-    with open(QUEST_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ======================
 # SESSION STATE
@@ -52,11 +25,8 @@ if "df_clean" not in st.session_state:
 if "holidays" not in st.session_state:
     st.session_state.holidays = []
 
-if "active_tab" not in st.session_state:
-    st.session_state.active_tab = "Team KPI"
-
-if "quest_view" not in st.session_state:
-    st.session_state.quest_view = None
+if "auth_ok" not in st.session_state:
+    st.session_state.auth_ok = {}
 
 # ======================
 # HELPERS
@@ -69,6 +39,7 @@ def jalali_to_gregorian(val):
         return jdatetime.date(y, m, d).togregorian()
     except:
         return None
+
 
 def normalize_customer(val):
     if pd.isna(val):
@@ -84,6 +55,21 @@ def normalize_customer(val):
         return "Serat"
     return val
 
+
+def normalize_designer(val):
+    mapping = {
+        "ملیکا عرب زاده": "Melika",
+        "ملیکا عرب‌زاده": "Melika",
+        "رومینا": "Romina",
+        "سجاد": "Sajad",
+        "فاطمه": "Fatemeh"
+    }
+    return mapping.get(str(val).strip(), val)
+
+
+# ======================
+# CLEAN EXCEL
+# ======================
 def clean_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
@@ -100,6 +86,7 @@ def clean_excel(uploaded_file):
         "شماره بریف": "Brief Number",
         "نام طراح": "Designer Name",
         "درخواست کننده": "Customer",
+        "درخواست‌کننده": "Customer",
         "تاریخ ددلاین": "Deadline - date",
         "ساعت ددلاین": "Hour",
         "نوع کاور": "Type",
@@ -108,152 +95,201 @@ def clean_excel(uploaded_file):
         "زمان ثبت بریف - تاریخ": "Submission date",
         "زمان ثبت بریف - ساعت": "Submission hour"
     }
+
     df = df.rename(columns=lambda x: rename_map.get(x, x))
 
-    designer_map = {
-        "ملیکا عرب زاده": "Melika",
-        "رومینا": "Romina",
-        "سجاد": "Sajad",
-        "فاطمه": "Fatemeh"
+    df["Designer Name"] = df["Designer Name"].apply(normalize_designer)
+    df["Customer"] = df["Customer"].apply(normalize_customer)
+    df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
+
+    replace_map = {
+        "سبز": "Ghorme Sabzi",
+        "قرمز": "Omlet",
+        "زرد": "Burger",
+        "ایراد طراح": "Designer Error",
+        "ایراد سفارش دهنده": "Customer Error",
+        "سلیقه": "Taste",
+        "تیم لید: سلیقه": "Team-lead: Taste",
+        "تیم لید: ایراد طراح": "Team-lead: Designer Error",
+        "تیم لید: ایراد سفارش دهنده": "Team-lead: Customer Error"
     }
 
-    df["Designer Name"] = df["Designer Name"].replace(designer_map)
+    for col in ["Type", "Reason"]:
+        df[col] = df[col].replace(replace_map)
 
-    df["Deadline - date"] = df["Deadline - date"].apply(jalali_to_gregorian)
     df["Submission date"] = pd.to_datetime(df["Submission date"], errors="coerce")
-    df["Submission hour"] = pd.to_datetime(df["Submission hour"], errors="coerce").dt.time
-    df["Customer"] = df["Customer"].apply(normalize_customer)
+    df["Submission hour"] = pd.to_datetime(
+        df["Submission hour"], errors="coerce"
+    ).dt.time
 
     return df
 
-def pie(title, value, total, color):
+
+# ======================
+# CHART
+# ======================
+def pie_chart(title, value, total, color):
     fig = px.pie(
-        names=[title, "Other"],
+        names=[title, "Others"],
         values=[value, max(total - value, 0)],
-        hole=0.4,
+        hole=0.45,
         color_discrete_sequence=[color, "#ECECEC"]
     )
-    fig.update_traces(textinfo="percent+value")
-    fig.update_layout(title=title, showlegend=False)
+    fig.update_traces(textinfo="percent+value", pull=[0.07, 0])
+    fig.update_layout(showlegend=False, height=260)
     return fig
+
+
+def chart_block(col, title, emoji, fig):
+    with col:
+        st.markdown(f"### {emoji} {title}")
+        st.plotly_chart(fig, use_container_width=True)
+
 
 # ======================
 # SIDEBAR
 # ======================
 with st.sidebar:
     st.title("📊 KPI Dashboard")
-
     if st.session_state.step == "done":
         if st.button("🔄 شروع دوباره"):
             st.session_state.step = "upload"
             st.session_state.df_clean = None
-            st.session_state.quest_view = None
+            st.session_state.holidays = []
+            st.session_state.auth_ok = {}
             st.rerun()
 
-        if st.session_state.active_tab == "Sajad KPI":
-            if st.button("🗺️ Quests"):
-                st.session_state.quest_view = "menu"
-
 # ======================
-# UPLOAD
+# STEP 1 — UPLOAD
 # ======================
 if st.session_state.step == "upload":
-    uploaded = st.file_uploader("📤 Upload Excel", type=["xlsx"])
-    if uploaded:
-        st.session_state.df_clean = clean_excel(uploaded)
-        st.session_state.step = "ready"
-        st.success("✅ File cleaned")
+    st.header("📤 آپلود فایل اکسل")
+    uploaded_file = st.file_uploader("فایل Exported را بارگذاری کنید", type=["xlsx"])
 
+    if uploaded_file:
+        st.session_state.df_clean = clean_excel(uploaded_file)
+        st.session_state.step = "ready"
+        st.success("✅ فایل با موفقیت پاکسازی شد")
+
+# ======================
+# STEP 2 — READY
+# ======================
 if st.session_state.step == "ready":
+    st.header("⚙️ آماده محاسبه KPI")
     if st.button("▶️ Calculate"):
         st.session_state.step = "done"
         st.rerun()
 
 # ======================
-# MAIN DASHBOARD
+# STEP 3 — KPI
 # ======================
 if st.session_state.step == "done":
+    df_all = st.session_state.df_clean.copy()
 
-    tabs = ["Team KPI"] + [f"{d} KPI" for d in DESIGNERS]
-    selected = st.radio("Select dashboard", tabs, horizontal=True)
-    st.session_state.active_tab = selected
+    min_d = df_all["Submission date"].min()
+    max_d = df_all["Submission date"].max()
 
-    df = st.session_state.df_clean.copy()
+    st.subheader("📅 تنظیم بازه و تعطیلات")
 
-    # PASSWORD GATE
-    if selected != "Team KPI":
-        name = selected.replace(" KPI", "")
-        pwd = st.text_input("🔒 Enter password", type="password")
-        st.warning("⚠️ پسورد خودتونو در اختیار بقیه قرار ندید")
-        if pwd != PASSWORDS[name]:
-            st.stop()
-        df = df[df["Designer Name"] == name]
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        start_date, end_date = st.date_input(
+            "بازه تحلیل", value=(min_d, max_d)
+        )
 
-    total = len(df)
+    with c2:
+        selected_day = st.date_input("روز تعطیل", value=None)
+        if st.button("➕ افزودن"):
+            if selected_day and selected_day not in st.session_state.holidays:
+                st.session_state.holidays.append(selected_day)
 
-    st.header(f"📈 {selected}")
+        holidays = st.multiselect(
+            "تعطیلات",
+            options=st.session_state.holidays,
+            default=st.session_state.holidays
+        )
 
-    c1, c2, c3 = st.columns(3)
-    c4, c5, c6 = st.columns(3)
+    df_all = df_all[
+        (df_all["Submission date"] >= pd.to_datetime(start_date)) &
+        (df_all["Submission date"] <= pd.to_datetime(end_date))
+    ]
 
-    c1.plotly_chart(pie("🥬 Ghorme Sabzi", (df["Type"] == "Ghorme Sabzi").sum(), total, "#2ECC71"))
-    c2.plotly_chart(pie("🍳 Omlet", (df["Type"] == "Omlet").sum(), total, "#F1C40F"))
-    c3.plotly_chart(pie("🍔 Burger", (df["Type"] == "Burger").sum(), total, "#E67E22"))
+    tabs = st.tabs([
+        "Team KPI",
+        "Sajad KPI",
+        "Romina KPI",
+        "Melika KPI",
+        "Fatemeh KPI"
+    ])
 
-    c4.plotly_chart(pie("❌ Designer Error", df["Reason"].str.contains("Designer Error", na=False).sum(), total, "#E74C3C"))
-    c5.plotly_chart(pie("❌❌ Edit ≥ 2", (df["Edit count"] >= 2).sum(), total, "#8E44AD"))
-    c6.plotly_chart(pie("🧳 Late", (df["Submission hour"] >= time(18, 0)).sum(), total, "#34495E"))
+    passwords = {
+        "Sajad": "2232245",
+        "Romina": "112131",
+        "Melika": "122232",
+        "Fatemeh": "132333"
+    }
 
-    # ======================
-    # QUESTS
-    # ======================
-    if st.session_state.quest_view:
-        st.divider()
-        st.header("🗺️ Quest Center")
+    def render_kpi(df):
+        total = len(df)
+        if total == 0:
+            st.warning("⚠️ دیتایی وجود ندارد")
+            return
 
-        quests = load_quests()
+        ghorme = (df["Type"] == "Ghorme Sabzi").sum()
+        omlet = (df["Type"] == "Omlet").sum()
+        burger = (df["Type"] == "Burger").sum()
 
-        if st.button("🆕 New Quest"):
-            st.session_state.quest_view = "new"
+        designer_error = df["Reason"].isin(
+            ["Designer Error", "Team-lead: Designer Error"]
+        ).sum()
 
-        if st.button("📜 All Quests"):
-            st.session_state.quest_view = "all"
+        revision_2 = (df["Edit count"] >= 2).sum()
 
-        if st.button("🎯 My Quests"):
-            st.session_state.quest_view = "my"
+        late = df[
+            (df["Submission hour"] >= time(18, 0)) |
+            (df["Submission date"].dt.date.isin(holidays))
+        ].shape[0]
 
-        # NEW QUEST
-        if st.session_state.quest_view == "new":
-            with st.form("new_quest"):
-                name = st.text_input("🏷️ Name the new quest")
-                desc = st.text_area("📝 Describe the quest")
-                dl = st.date_input("⏳ Deadline")
-                owner = st.selectbox("👤 Owner", DESIGNERS)
-                if st.form_submit_button("✅ Finish"):
-                    quests.append({
-                        "name": name,
-                        "desc": desc,
-                        "deadline": str(dl),
-                        "owner": owner,
-                        "done": False
-                    })
-                    save_quests(quests)
-                    st.success("Quest added!")
+        r1 = st.columns(3)
+        r2 = st.columns(3)
 
-        # ALL QUESTS
-        if st.session_state.quest_view == "all":
-            who = st.selectbox("⚔️ Whose quests?", DESIGNERS)
-            for q in [x for x in quests if x["owner"] == who]:
-                st.markdown(f"### 🏆 {q['name']}")
-                st.caption(q["desc"])
-                st.write(f"⏰ Deadline: {q['deadline']}")
-                st.write("✅ Done" if q["done"] else "⬜ Not done")
+        chart_block(r1[0], "Ghorme Sabzi Ratio", "🥬",
+                    pie_chart("Ghorme Sabzi", ghorme, total, "#2ECC71"))
 
-        # MY QUESTS
-        if st.session_state.quest_view == "my":
-            owner = selected.replace(" KPI", "")
-            for q in [x for x in quests if x["owner"] == owner]:
-                st.markdown(f"### 🎯 {q['name']}")
-                st.caption(q["desc"])
-                st.write(f"⏰ Deadline: {q['deadline']}")
-                st.write("✅ Done" if q["done"] else "⬜ Not done")
+        chart_block(r1[1], "Omlet Ratio", "🥚",
+                    pie_chart("Omlet", omlet, total, "#F1C40F"))
+
+        chart_block(r1[2], "Burger Ratio", "🍔",
+                    pie_chart("Burger", burger, total, "#E67E22"))
+
+        chart_block(r2[0], "Designer Error Rate", "❌",
+                    pie_chart("Designer Error", designer_error, total, "#E74C3C"))
+
+        chart_block(r2[1], "More Than 2 Revisions", "🔁",
+                    pie_chart("2+ Revisions", revision_2, total, "#8E44AD"))
+
+        chart_block(r2[2], "Late Submissions", "⏰",
+                    pie_chart("Late", late, total, "#34495E"))
+
+    # TEAM KPI
+    with tabs[0]:
+        render_kpi(df_all)
+
+    # INDIVIDUAL KPI
+    for i, name in enumerate(["Sajad", "Romina", "Melika", "Fatemeh"], start=1):
+        with tabs[i]:
+            if not st.session_state.auth_ok.get(name, False):
+                pwd = st.text_input(
+                    f"پسورد {name}",
+                    type="password",
+                    key=f"pwd_{name}"
+                )
+                st.warning("⚠️ پسورد شخصی است")
+                if st.button("ورود", key=f"btn_{name}"):
+                    if pwd == passwords[name]:
+                        st.session_state.auth_ok[name] = True
+                        st.rerun()
+                    else:
+                        st.error("❌ پسورد اشتباه است")
+            else:
+                render_kpi(df_all[df_all["Designer Name"] == name])
