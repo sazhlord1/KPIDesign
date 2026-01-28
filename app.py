@@ -46,11 +46,19 @@ if "trend_filters" not in st.session_state:
         "selected_kpi": "Ghorme Sabzi",
         "selected_designers": ["Team (All)"],
         "time_range": "Monthly",
-        "authenticated_designers": []
+        "password_inputs": {
+            "Sajad": "",
+            "Romina": "",
+            "Melika": "", 
+            "Fatemeh": ""
+        },
+        "password_verified": {
+            "Sajad": False,
+            "Romina": False,
+            "Melika": False,
+            "Fatemeh": False
+        }
     }
-
-if "password_modal" not in st.session_state:
-    st.session_state.password_modal = {"active": False, "designer": None}
 
 # ======================
 # QUEST STORAGE
@@ -205,20 +213,60 @@ def calculate_kpi(df, kpi_name, holidays):
         return df[late_condition].shape[0]
     return 0
 
+def get_chart_colors():
+    """دریافت رنگ‌ها بر اساس تم Streamlit"""
+    # رنگ‌های پیش‌فرض برای لایت مود
+    colors = {
+        "background": "#FFFFFF",
+        "text": "#000000",
+        "grid": "#E5ECF6",
+        "plot_bg": "#FFFFFF",
+        "paper_bg": "#FFFFFF"
+    }
+    
+    # اگر تم دارک فعال است
+    try:
+        # این رنگ‌ها با تم دارک Streamlit سازگار هستند
+        if st.get_option("theme.base") == "dark":
+            colors = {
+                "background": "#0E1117",
+                "text": "#FAFAFA",
+                "grid": "#262730",
+                "plot_bg": "#0E1117",
+                "paper_bg": "#0E1117"
+            }
+    except:
+        pass
+    
+    return colors
+
 def create_multi_line_chart(df_all, kpi_name, time_range, selected_designers, holidays):
     """ایجاد نمودار چند خطی برای مقایسه طراحان"""
     
     kpi_options = get_kpi_options()
     emoji = kpi_options[kpi_name]["emoji"]
     
-    # رنگ‌های متمایز برای هر طراح
+    # دریافت رنگ‌ها بر اساس تم
+    theme_colors = get_chart_colors()
+    
+    # رنگ‌های متمایز برای هر طراح (با سازگاری با هر دو تم)
     color_palette = {
-        "Team (All)": "#3498DB",  # آبی
+        "Team (All)": "#3498DB",  # آبی روشن
         "Sajad": "#2ECC71",       # سبز
         "Romina": "#E74C3C",      # قرمز
         "Melika": "#9B59B6",      # بنفش
         "Fatemeh": "#F39C12"      # نارنجی
     }
+    
+    # اگر تم دارک است، رنگ‌های روشن‌تر استفاده کن
+    if theme_colors["background"] == "#0E1117":
+        color_palette = {
+            "Team (All)": "#1ABC9C",  # فیروزه‌ای
+            "Sajad": "#2ECC71",       # سبز
+            "Romina": "#E74C3C",      # قرمز
+            "Melika": "#9B59B6",      # بنفش
+            "Fatemeh": "#F1C40F"      # زرد
+        }
     
     # ترجمه عنوان‌ها
     time_range_titles = {
@@ -313,7 +361,7 @@ def create_multi_line_chart(df_all, kpi_name, time_range, selected_designers, ho
         color_discrete_map={k: color_palette.get(k, "#000000") for k in combined_df["designer"].unique()}
     )
     
-    # تنظیمات ظاهری
+    # تنظیمات ظاهری با توجه به تم
     fig.update_layout(
         xaxis_title="زمان",
         yaxis_title="تعداد",
@@ -324,80 +372,34 @@ def create_multi_line_chart(df_all, kpi_name, time_range, selected_designers, ho
             yanchor="top",
             y=0.99,
             xanchor="left",
-            x=0.01
-        )
+            x=0.01,
+            bgcolor=theme_colors["paper_bg"],
+            font=dict(color=theme_colors["text"])
+        ),
+        plot_bgcolor=theme_colors["plot_bg"],
+        paper_bgcolor=theme_colors["paper_bg"],
+        font=dict(color=theme_colors["text"])
     )
     
-    fig.update_traces(
-        line=dict(width=3),
-        marker=dict(size=8)
+    # تنظیمات محورها
+    fig.update_xaxes(
+        gridcolor=theme_colors["grid"],
+        zerolinecolor=theme_colors["grid"],
+        linecolor=theme_colors["grid"]
     )
+    
+    fig.update_yaxes(
+        gridcolor=theme_colors["grid"],
+        zerolinecolor=theme_colors["grid"],
+        linecolor=theme_colors["grid"]
+    )
+    
+    # تنظیم ضخامت و رنگ خطوط
+    for trace in fig.data:
+        trace.line.width = 3
+        trace.marker.size = 8
     
     return fig
-
-def render_password_modal():
-    """نمایش مودال برای ورود پسورد"""
-    if st.session_state.password_modal["active"]:
-        designer = st.session_state.password_modal["designer"]
-        
-        st.markdown("""
-            <style>
-            .modal-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background-color: rgba(0, 0, 0, 0.5);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 9999;
-            }
-            </style>
-        """, unsafe_allow_html=True)
-        
-        with st.container():
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                with st.form(key=f"password_form_{designer}"):
-                    st.markdown(f"### 🔐 احراز هویت")
-                    st.markdown(f"لطفاً پسورد **{designer}** را وارد کنید:")
-                    
-                    password = st.text_input(
-                        "پسورد",
-                        type="password",
-                        key=f"pwd_input_{designer}"
-                    )
-                    
-                    col_btn1, col_btn2 = st.columns(2)
-                    with col_btn1:
-                        submit = st.form_submit_button("✅ تایید", use_container_width=True)
-                    with col_btn2:
-                        cancel = st.form_submit_button("❌ لغو", use_container_width=True)
-                    
-                    if submit:
-                        passwords = {
-                            "Sajad": "2232245",
-                            "Romina": "112131",
-                            "Melika": "122232",
-                            "Fatemeh": "132333"
-                        }
-                        
-                        if password == passwords.get(designer):
-                            if designer not in st.session_state.trend_filters["authenticated_designers"]:
-                                st.session_state.trend_filters["authenticated_designers"].append(designer)
-                            st.session_state.password_modal = {"active": False, "designer": None}
-                            st.success("✅ احراز هویت موفق")
-                            st.rerun()
-                        else:
-                            st.error("❌ پسورد اشتباه است")
-                    
-                    if cancel:
-                        st.session_state.password_modal = {"active": False, "designer": None}
-                        st.rerun()
-        
-        st.markdown('<div class="modal-overlay"></div>', unsafe_allow_html=True)
 
 # ======================
 # SIDEBAR
@@ -435,9 +437,19 @@ with st.sidebar:
                 "selected_kpi": "Ghorme Sabzi",
                 "selected_designers": ["Team (All)"],
                 "time_range": "Monthly",
-                "authenticated_designers": []
+                "password_inputs": {
+                    "Sajad": "",
+                    "Romina": "",
+                    "Melika": "", 
+                    "Fatemeh": ""
+                },
+                "password_verified": {
+                    "Sajad": False,
+                    "Romina": False,
+                    "Melika": False,
+                    "Fatemeh": False
+                }
             }
-            st.session_state.password_modal = {"active": False, "designer": None}
             st.rerun()
 
 # ======================
@@ -465,9 +477,6 @@ if st.session_state.step == "ready":
 # STEP 3 — MAIN DASHBOARD
 # ======================
 if st.session_state.step == "done":
-    
-    # نمایش مودال پسورد اگر فعال باشد
-    render_password_modal()
     
     # ======================
     # QUEST PAGE
@@ -598,6 +607,51 @@ if st.session_state.step == "done":
                 
                 st.markdown("---")
                 
+                # 4. ورود پسورد برای طراحان انتخاب شده
+                if selected_designers:
+                    # فقط طراحان فردی (نه Team All)
+                    individual_designers = [d for d in selected_designers if d != "Team (All)"]
+                    
+                    if individual_designers:
+                        st.markdown("🔐 **ورود پسورد:**")
+                        
+                        passwords = {
+                            "Sajad": "2232245",
+                            "Romina": "112131",
+                            "Melika": "122232",
+                            "Fatemeh": "132333"
+                        }
+                        
+                        for designer in individual_designers:
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                password_input = st.text_input(
+                                    f"پسورد {designer}",
+                                    type="password",
+                                    value=st.session_state.trend_filters["password_inputs"][designer],
+                                    key=f"pwd_{designer}"
+                                )
+                                st.session_state.trend_filters["password_inputs"][designer] = password_input
+                            
+                            with col2:
+                                if st.button("تایید", key=f"verify_{designer}"):
+                                    if password_input == passwords[designer]:
+                                        st.session_state.trend_filters["password_verified"][designer] = True
+                                        st.success(f"✅ {designer} تأیید شد")
+                                        st.rerun()
+                                    else:
+                                        st.session_state.trend_filters["password_verified"][designer] = False
+                                        st.error(f"❌ پسورد {designer} اشتباه است")
+                                        st.rerun()
+                            
+                            # نمایش وضعیت تأیید
+                            if st.session_state.trend_filters["password_verified"][designer]:
+                                st.success(f"✅ {designer} تأیید شده")
+                            else:
+                                st.warning(f"⚠️ {designer} نیاز به تأیید")
+                
+                st.markdown("---")
+                
                 # دکمه اعمال فیلترها
                 if st.button("🔄 اعمال فیلترها", type="primary", use_container_width=True):
                     if not st.session_state.trend_filters["selected_designers"]:
@@ -608,17 +662,14 @@ if st.session_state.step == "done":
         # ======================
         # بررسی احراز هویت برای طراحان انتخاب شده
         # ======================
-        needs_auth = []
+        unverified_designers = []
         for designer in st.session_state.trend_filters["selected_designers"]:
-            if designer != "Team (All)" and designer not in st.session_state.trend_filters["authenticated_designers"]:
-                if designer not in needs_auth:
-                    needs_auth.append(designer)
+            if designer != "Team (All)" and not st.session_state.trend_filters["password_verified"][designer]:
+                unverified_designers.append(designer)
         
-        # نمایش مودال برای طراحانی که نیاز به احراز هویت دارند
-        if needs_auth:
-            if not st.session_state.password_modal["active"]:
-                st.session_state.password_modal = {"active": True, "designer": needs_auth[0]}
-            st.warning(f"🔐 نیاز به احراز هویت برای: {', '.join(needs_auth)}")
+        if unverified_designers:
+            st.warning(f"⚠️ نیاز به وارد کردن پسورد برای: {', '.join(unverified_designers)}")
+            st.info("لطفاً در پنل سمت چپ پسورد هر طراح را وارد کرده و دکمه 'تایید' را بزنید.")
             st.stop()
         
         # ======================
