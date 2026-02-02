@@ -24,55 +24,113 @@ st.set_page_config(
 # ======================
 st.markdown("""
 <style>
+    /* Remove white space at top */
+    .stApp {
+        margin-top: -50px;
+    }
+    
     .main-header {
         font-size: 2.5rem;
         color: #1E3A8A;
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
+        padding-top: 1rem;
     }
+    
     .login-container {
         max-width: 400px;
-        margin: 0 auto;
-        padding: 2rem;
+        margin: 2rem auto;
+        padding: 2.5rem;
         border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        background-color: #f8fafc;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        background-color: #ffffff;
+        border: 1px solid #e5e7eb;
     }
+    
+    .login-title {
+        text-align: center;
+        color: #374151;
+        margin-bottom: 0.5rem;
+    }
+    
+    .login-subtitle {
+        text-align: center;
+        color: #6b7280;
+        margin-bottom: 2rem;
+        font-size: 1rem;
+    }
+    
     .metric-card {
         background-color: #ffffff;
         padding: 1.5rem;
         border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border-left: 5px solid #3B82F6;
     }
+    
     .quest-card {
         background-color: #ffffff;
         padding: 1.5rem;
         border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         margin-bottom: 1rem;
         border-left: 5px solid #10B981;
     }
+    
     .success-badge {
         background-color: #10B981;
         color: white;
-        padding: 0.25rem 0.75rem;
+        padding: 0.4rem 1rem;
         border-radius: 20px;
         font-size: 0.875rem;
         display: inline-block;
+        font-weight: 600;
     }
+    
     .pending-badge {
         background-color: #F59E0B;
         color: white;
-        padding: 0.25rem 0.75rem;
+        padding: 0.4rem 1rem;
         border-radius: 20px;
         font-size: 0.875rem;
         display: inline-block;
+        font-weight: 600;
     }
+    
     .stButton>button {
         width: 100%;
         border-radius: 8px;
         font-weight: 600;
+        padding: 0.75rem;
+        font-size: 1rem;
+    }
+    
+    .chart-container {
+        height: 320px !important;
+    }
+    
+    .upload-section {
+        max-width: 600px;
+        margin: 2rem auto;
+        padding: 3rem;
+        border-radius: 15px;
+        background-color: #f8fafc;
+        border: 2px dashed #60A5FA;
+        text-align: center;
+    }
+    
+    .success-message {
+        background-color: #d1fae5;
+        color: #065f46;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #10B981;
+        margin-top: 1rem;
+    }
+    
+    /* Fix chart size */
+    .js-plotly-plot {
+        height: 320px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -106,6 +164,9 @@ if "show_upload_modal" not in st.session_state:
 
 if "editing_quest" not in st.session_state:
     st.session_state.editing_quest = None
+
+if "quest_created" not in st.session_state:
+    st.session_state.quest_created = False
 
 # ======================
 # QUEST STORAGE
@@ -220,7 +281,11 @@ def pie_chart(title, value, total, color):
         color_discrete_sequence=[color, "#ECECEC"]
     )
     fig.update_traces(textinfo="percent+value", pull=[0.07, 0])
-    fig.update_layout(showlegend=False, height=260)
+    fig.update_layout(
+        showlegend=False, 
+        height=320,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
     return fig
 
 def get_kpi_options():
@@ -367,7 +432,8 @@ def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=No
             y=0.99,
             xanchor="left",
             x=0.01
-        )
+        ),
+        margin=dict(l=50, r=50, t=80, b=50)
     )
     
     fig.update_traces(
@@ -389,8 +455,8 @@ def show_login_page():
         with col2:
             st.markdown('<div class="login-container">', unsafe_allow_html=True)
             
-            st.markdown("### 🔐 Login")
-            st.markdown("Please enter your credentials")
+            st.markdown('<h2 class="login-title">🔐 Login</h2>', unsafe_allow_html=True)
+            st.markdown('<p class="login-subtitle">Please enter your credentials</p>', unsafe_allow_html=True)
             
             username = st.selectbox(
                 "👤 Username",
@@ -472,6 +538,7 @@ def render_kpi_page():
     if st.session_state.df_clean is None:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
+            st.markdown('<div class="upload-section">', unsafe_allow_html=True)
             st.markdown("### 📁 Upload Excel File")
             st.markdown("Please upload your Excel file to start analysis")
             
@@ -482,6 +549,8 @@ def render_kpi_page():
                     st.session_state.df_clean = clean_excel(uploaded_file)
                     st.success("✅ File uploaded and processed successfully!")
                     st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
         return
     
     # If data exists, show KPI
@@ -567,34 +636,34 @@ def render_kpi_page():
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("🥬 Ghorme Sabzi", f"{ghorme}", f"{ghorme/total*100:.1f}%")
-                st.plotly_chart(pie_chart("Ghorme Sabzi", ghorme, total, "#2ECC71"), 
-                              use_container_width=True, config={'displayModeBar': False})
+                fig1 = pie_chart("Ghorme Sabzi", ghorme, total, "#2ECC71")
+                st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
             
             with col2:
                 st.metric("🥚 Omlet", f"{omlet}", f"{omlet/total*100:.1f}%")
-                st.plotly_chart(pie_chart("Omlet", omlet, total, "#F1C40F"), 
-                              use_container_width=True, config={'displayModeBar': False})
+                fig2 = pie_chart("Omlet", omlet, total, "#F1C40F")
+                st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             
             with col3:
                 st.metric("🍔 Burger", f"{burger}", f"{burger/total*100:.1f}%")
-                st.plotly_chart(pie_chart("Burger", burger, total, "#E67E22"), 
-                              use_container_width=True, config={'displayModeBar': False})
+                fig3 = pie_chart("Burger", burger, total, "#E67E22")
+                st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
             
             col4, col5, col6 = st.columns(3)
             with col4:
                 st.metric("❌ Designer Error", f"{designer_error}", f"{designer_error/total*100:.1f}%")
-                st.plotly_chart(pie_chart("Designer Error", designer_error, total, "#E74C3C"), 
-                              use_container_width=True, config={'displayModeBar': False})
+                fig4 = pie_chart("Designer Error", designer_error, total, "#E74C3C")
+                st.plotly_chart(fig4, use_container_width=True, config={'displayModeBar': False})
             
             with col5:
                 st.metric("🔁 Edits > 2", f"{revision_2}", f"{revision_2/total*100:.1f}%")
-                st.plotly_chart(pie_chart("2+ Revisions", revision_2, total, "#8E44AD"), 
-                              use_container_width=True, config={'displayModeBar': False})
+                fig5 = pie_chart("2+ Revisions", revision_2, total, "#8E44AD")
+                st.plotly_chart(fig5, use_container_width=True, config={'displayModeBar': False})
             
             with col6:
                 st.metric("⏰ Late Submissions", f"{late}", f"{late/total*100:.1f}%")
-                st.plotly_chart(pie_chart("Late", late, total, "#34495E"), 
-                              use_container_width=True, config={'displayModeBar': False})
+                fig6 = pie_chart("Late", late, total, "#34495E")
+                st.plotly_chart(fig6, use_container_width=True, config={'displayModeBar': False})
     
     # Re-upload button at bottom
     st.markdown("---")
@@ -709,6 +778,13 @@ def render_quests_page():
     
     quests = load_quests()
     
+    # Show success message if quest was just created
+    if st.session_state.quest_created:
+        st.markdown('<div class="success-message">', unsafe_allow_html=True)
+        st.markdown("✅ **The new quest has been submitted successfully**")
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.session_state.quest_created = False
+    
     if st.session_state.current_user == "Sajad":
         # Sajad - Full dashboard
         tab1, tab2, tab3 = st.tabs(["➕ New Quest", "📜 All Quests", "🎯 My Quests"])
@@ -738,7 +814,7 @@ def render_quests_page():
                         "created_at": str(date.today())
                     })
                     save_quests(quests)
-                    st.success("✅ New quest created successfully!")
+                    st.session_state.quest_created = True
                     st.rerun()
                 else:
                     st.error("❌ Please enter quest name and description")
