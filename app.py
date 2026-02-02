@@ -109,9 +109,9 @@ st.markdown("""
         height: 320px !important;
     }
     
-    /* حذف کامل این دو بخش */
-    /*
+    /* اضافه کردن display: none به کلاس‌های مشکل‌ساز */
     .upload-section {
+        display: none !important;
         max-width: 600px;
         margin: 2rem auto;
         padding: 3rem;
@@ -122,6 +122,7 @@ st.markdown("""
     }
     
     .success-message {
+        display: none !important;
         background-color: #d1fae5;
         color: #065f46;
         padding: 1rem;
@@ -129,7 +130,6 @@ st.markdown("""
         border-left: 4px solid #10B981;
         margin-top: 1rem;
     }
-    */
     
     /* Fix chart size */
     .js-plotly-plot {
