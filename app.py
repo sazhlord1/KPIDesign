@@ -109,31 +109,37 @@ st.markdown("""
         height: 320px !important;
     }
     
-    /* حذف کامل این دو بخش */
-    /*
-    .upload-section {
-        max-width: 600px;
-        margin: 2rem auto;
-        padding: 3rem;
-        border-radius: 15px;
-        background-color: #f8fafc;
-        border: 2px dashed #60A5FA;
-        text-align: center;
-    }
-    
-    .success-message {
-        background-color: #d1fae5;
-        color: #065f46;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #10B981;
-        margin-top: 1rem;
-    }
-    */
-    
     /* Fix chart size */
     .js-plotly-plot {
         height: 320px !important;
+    }
+    
+    /* مخفی کردن کامل upload-section با تمام حالات ممکن */
+    .upload-section,
+    [class*="upload"],
+    [class*="Upload"],
+    [class*="UPLOAD"],
+    div[class*="upload"],
+    section[class*="upload"],
+    .upload,
+    .upload-container,
+    .upload-area,
+    .file-upload {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        opacity: 0 !important;
+        position: absolute !important;
+        left: -9999px !important;
+    }
+    
+    /* مخفی کردن parent containerها */
+    div:has(> .upload-section),
+    div:has(> [class*="upload"]) {
+        display: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
