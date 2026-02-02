@@ -36,17 +36,7 @@ st.markdown("""
         margin-bottom: 1rem;
         padding-top: 1rem;
     }
-    
-    .login-container {
-        max-width: 400px;
-        margin: 2rem auto;
-        padding: 2.5rem;
-        border-radius: 15px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-        background-color: #ffffff;
-        border: 1px solid #e5e7eb;
-    }
-    
+   
     .login-title {
         text-align: center;
         color: #374151;
@@ -66,15 +56,6 @@ st.markdown("""
         border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border-left: 5px solid #3B82F6;
-    }
-    
-    .quest-card {
-        background-color: #ffffff;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        margin-bottom: 1rem;
-        border-left: 5px solid #10B981;
     }
     
     .success-badge {
