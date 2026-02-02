@@ -7,6 +7,7 @@ from datetime import time, date
 import json
 import os
 import uuid
+from io import BytesIO
 
 # ======================
 # PAGE CONFIG
@@ -14,14 +15,85 @@ import uuid
 st.set_page_config(
     page_title="Task Analytics Dashboard",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    page_icon="📊"
 )
+
+# ======================
+# CUSTOM CSS
+# ======================
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1E3A8A;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .login-container {
+        max-width: 400px;
+        margin: 0 auto;
+        padding: 2rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        background-color: #f8fafc;
+    }
+    .upload-box {
+        border: 3px dashed #60A5FA;
+        border-radius: 15px;
+        padding: 3rem;
+        text-align: center;
+        background-color: #f0f9ff;
+        margin: 2rem auto;
+        max-width: 600px;
+    }
+    .metric-card {
+        background-color: #ffffff;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border-left: 5px solid #3B82F6;
+    }
+    .quest-card {
+        background-color: #ffffff;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1rem;
+        border-left: 5px solid #10B981;
+    }
+    .success-badge {
+        background-color: #10B981;
+        color: white;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        display: inline-block;
+    }
+    .pending-badge {
+        background-color: #F59E0B;
+        color: white;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        display: inline-block;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ======================
 # SESSION STATE
 # ======================
-if "step" not in st.session_state:
-    st.session_state.step = "upload"
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
+
+if "is_authenticated" not in st.session_state:
+    st.session_state.is_authenticated = False
 
 if "df_clean" not in st.session_state:
     st.session_state.df_clean = None
@@ -29,36 +101,17 @@ if "df_clean" not in st.session_state:
 if "holidays" not in st.session_state:
     st.session_state.holidays = []
 
-if "auth_ok" not in st.session_state:
-    st.session_state.auth_ok = {}
-
 if "active_page" not in st.session_state:
-    st.session_state.active_page = "kpi"
+    st.session_state.active_page = "landing"
 
-if "current_user" not in st.session_state:
-    st.session_state.current_user = None
-
-# ======================
-# NEW: TREND ANALYSIS STATE
-# ======================
 if "trend_filters" not in st.session_state:
     st.session_state.trend_filters = {
         "selected_kpi": "Ghorme Sabzi",
-        "selected_designers": ["Team (All)"],
-        "time_range": "Monthly",
-        "password_inputs": {
-            "Sajad": "",
-            "Romina": "",
-            "Melika": "", 
-            "Fatemeh": ""
-        },
-        "password_verified": {
-            "Sajad": False,
-            "Romina": False,
-            "Melika": False,
-            "Fatemeh": False
-        }
+        "time_range": "Monthly"
     }
+
+if "show_upload_modal" not in st.session_state:
+    st.session_state.show_upload_modal = False
 
 # ======================
 # QUEST STORAGE
@@ -68,15 +121,18 @@ QUEST_FILE = "quests.json"
 def load_quests():
     if not os.path.exists(QUEST_FILE):
         return []
-    with open(QUEST_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(QUEST_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
 
 def save_quests(data):
     with open(QUEST_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ======================
-# HELPERS
+# HELPER FUNCTIONS
 # ======================
 def jalali_to_gregorian(val):
     try:
@@ -111,9 +167,6 @@ def normalize_designer(val):
     }
     return mapping.get(str(val).strip(), val)
 
-# ======================
-# CLEAN EXCEL
-# ======================
 def clean_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
@@ -165,9 +218,6 @@ def clean_excel(uploaded_file):
 
     return df
 
-# ======================
-# CHART FUNCTIONS
-# ======================
 def pie_chart(title, value, total, color):
     fig = px.pie(
         names=[title, "Others"],
@@ -179,14 +229,6 @@ def pie_chart(title, value, total, color):
     fig.update_layout(showlegend=False, height=260)
     return fig
 
-def chart_block(col, title, emoji, fig):
-    with col:
-        st.markdown(f"### {emoji} {title}")
-        st.plotly_chart(fig, use_container_width=True)
-
-# ======================
-# TREND ANALYSIS FUNCTIONS
-# ======================
 def get_kpi_options():
     return {
         "Ghorme Sabzi": {"emoji": "🥬", "color": "#2ECC71"},
@@ -213,584 +255,688 @@ def calculate_kpi(df, kpi_name, holidays):
         return df[late_condition].shape[0]
     return 0
 
-def get_chart_colors():
-    """دریافت رنگ‌ها بر اساس تم Streamlit"""
-    # رنگ‌های پیش‌فرض برای لایت مود
-    colors = {
-        "background": "#FFFFFF",
-        "text": "#000000",
-        "grid": "#E5ECF6",
-        "plot_bg": "#FFFFFF",
-        "paper_bg": "#FFFFFF"
-    }
-    
-    # اگر تم دارک فعال است
-    try:
-        # این رنگ‌ها با تم دارک Streamlit سازگار هستند
-        if st.get_option("theme.base") == "dark":
-            colors = {
-                "background": "#0E1117",
-                "text": "#FAFAFA",
-                "grid": "#262730",
-                "plot_bg": "#0E1117",
-                "paper_bg": "#0E1117"
-            }
-    except:
-        pass
-    
-    return colors
-
-def create_multi_line_chart(df_all, kpi_name, time_range, selected_designers, holidays):
-    """ایجاد نمودار چند خطی برای مقایسه طراحان"""
-    
+def create_trend_chart(df, kpi_name, time_range, holidays):
+    """ایجاد نمودار خطی روند"""
     kpi_options = get_kpi_options()
     emoji = kpi_options[kpi_name]["emoji"]
+    color = kpi_options[kpi_name]["color"]
     
-    # دریافت رنگ‌ها بر اساس تم
-    theme_colors = get_chart_colors()
+    df = df.copy()
+    df["year_month"] = df["Submission date"].dt.to_period("M")
     
-    # رنگ‌های متمایز برای هر طراح (با سازگاری با هر دو تم)
-    color_palette = {
-        "Team (All)": "#3498DB",  # آبی روشن
-        "Sajad": "#2ECC71",       # سبز
-        "Romina": "#E74C3C",      # قرمز
-        "Melika": "#9B59B6",      # بنفش
-        "Fatemeh": "#F39C12"      # نارنجی
-    }
-    
-    # اگر تم دارک است، رنگ‌های روشن‌تر استفاده کن
-    if theme_colors["background"] == "#0E1117":
-        color_palette = {
-            "Team (All)": "#1ABC9C",  # فیروزه‌ای
-            "Sajad": "#2ECC71",       # سبز
-            "Romina": "#E74C3C",      # قرمز
-            "Melika": "#9B59B6",      # بنفش
-            "Fatemeh": "#F1C40F"      # زرد
-        }
-    
-    # ترجمه عنوان‌ها
     time_range_titles = {
         "Monthly": "ماه گذشته (روزانه)",
         "Annually": "یک سال گذشته (ماهانه)",
         "All time": "کل زمان (ماهانه)"
     }
     
-    all_data = []
-    
-    for designer in selected_designers:
-        # فیلتر کردن داده‌ها برای هر طراح
-        if designer == "Team (All)":
-            df_designer = df_all
-            display_name = "تیم"
-        else:
-            df_designer = df_all[df_all["Designer Name"] == designer]
-            display_name = designer
+    if time_range == "Monthly":
+        end_date = df["Submission date"].max()
+        start_date = end_date - pd.Timedelta(days=30)
+        df_period = df[df["Submission date"] >= start_date]
         
-        if df_designer.empty:
-            continue
+        if df_period.empty:
+            return None
         
-        # آماده‌سازی داده‌ها
-        df = df_designer.copy()
-        df["year_month"] = df["Submission date"].dt.to_period("M")
+        daily_data = []
+        current_date = start_date.date()
         
-        if time_range == "Monthly":
-            # روند روزانه
+        while current_date <= end_date.date():
+            day_data = df_period[df_period["Submission date"].dt.date == current_date]
+            value = calculate_kpi(day_data, kpi_name, holidays)
+            daily_data.append({
+                "date": current_date,
+                "value": value,
+                "label": current_date.strftime("%Y-%m-%d")
+            })
+            current_date += pd.Timedelta(days=1)
+        
+        trend_df = pd.DataFrame(daily_data)
+        
+        fig = px.line(
+            trend_df,
+            x="label",
+            y="value",
+            title=f"{emoji} {kpi_name} Trend - {time_range_titles[time_range]}",
+            color_discrete_sequence=[color]
+        )
+        
+        fig.update_xaxes(title_text="روز")
+        
+    else:
+        if time_range == "Annually":
             end_date = df["Submission date"].max()
-            start_date = end_date - pd.Timedelta(days=30)
+            start_date = end_date - pd.DateOffset(months=11)
             df_period = df[df["Submission date"] >= start_date]
-            
-            if df_period.empty:
-                continue
-            
-            # گروه‌بندی روزانه
-            daily_data = []
-            current_date = start_date.date()
-            
-            while current_date <= end_date.date():
-                day_data = df_period[df_period["Submission date"].dt.date == current_date]
-                value = calculate_kpi(day_data, kpi_name, holidays)
-                daily_data.append({
-                    "date": current_date,
-                    "value": value,
-                    "designer": display_name,
-                    "time_label": current_date.strftime("%Y-%m-%d")
-                })
-                current_date += pd.Timedelta(days=1)
-            
-            if daily_data:
-                designer_df = pd.DataFrame(daily_data)
-                all_data.append(designer_df)
+            time_title = time_range_titles["Annually"]
+        else:
+            df_period = df
+            time_title = time_range_titles["All time"]
         
-        else:  # Annually یا All time
-            if time_range == "Annually":
-                end_date = df["Submission date"].max()
-                start_date = end_date - pd.DateOffset(months=11)
-                df_period = df[df["Submission date"] >= start_date]
-            else:  # All time
-                df_period = df
-            
-            if df_period.empty:
-                continue
-            
-            # گروه‌بندی ماهانه
-            monthly_stats = df_period.groupby("year_month").apply(
-                lambda x: calculate_kpi(x, kpi_name, holidays)
-            ).reset_index(name="value")
-            
-            monthly_stats["designer"] = display_name
-            monthly_stats["time_label"] = monthly_stats["year_month"].dt.strftime("%Y-%m")
-            
-            all_data.append(monthly_stats)
+        if df_period.empty:
+            return None
+        
+        monthly_data = df_period.groupby("year_month").apply(
+            lambda x: calculate_kpi(x, kpi_name, holidays)
+        ).reset_index(name="value")
+        
+        monthly_data["label"] = monthly_data["year_month"].dt.strftime("%Y-%m")
+        
+        fig = px.line(
+            monthly_data,
+            x="label",
+            y="value",
+            title=f"{emoji} {kpi_name} Trend - {time_title}",
+            color_discrete_sequence=[color]
+        )
+        
+        fig.update_xaxes(title_text="ماه")
     
-    if not all_data:
-        return None
-    
-    # ترکیب همه داده‌ها
-    combined_df = pd.concat(all_data, ignore_index=True)
-    
-    # ایجاد نمودار چند خطی
-    title = f"{emoji} {kpi_name} Trend - {time_range_titles[time_range]}"
-    
-    fig = px.line(
-        combined_df,
-        x="time_label",
-        y="value",
-        color="designer",
-        title=title,
-        markers=True,
-        color_discrete_map={k: color_palette.get(k, "#000000") for k in combined_df["designer"].unique()}
-    )
-    
-    # تنظیمات ظاهری با توجه به تم
     fig.update_layout(
-        xaxis_title="زمان",
         yaxis_title="تعداد",
         hovermode="x unified",
-        height=550,
-        legend_title="طراح",
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01,
-            bgcolor=theme_colors["paper_bg"],
-            font=dict(color=theme_colors["text"])
-        ),
-        plot_bgcolor=theme_colors["plot_bg"],
-        paper_bgcolor=theme_colors["paper_bg"],
-        font=dict(color=theme_colors["text"])
+        height=500,
+        showlegend=False
     )
     
-    # تنظیمات محورها
-    fig.update_xaxes(
-        gridcolor=theme_colors["grid"],
-        zerolinecolor=theme_colors["grid"],
-        linecolor=theme_colors["grid"]
+    fig.update_traces(
+        mode="lines+markers",
+        marker=dict(size=8),
+        line=dict(width=3)
     )
-    
-    fig.update_yaxes(
-        gridcolor=theme_colors["grid"],
-        zerolinecolor=theme_colors["grid"],
-        linecolor=theme_colors["grid"]
-    )
-    
-    # تنظیم ضخامت و رنگ خطوط
-    for trace in fig.data:
-        trace.line.width = 3
-        trace.marker.size = 8
     
     return fig
 
 # ======================
+# AUTHENTICATION
+# ======================
+def show_login_page():
+    """صفحه لاگین"""
+    st.markdown('<h1 class="main-header">📊 Task Analytics Dashboard</h1>', unsafe_allow_html=True)
+    
+    with st.container():
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown('<div class="login-container">', unsafe_allow_html=True)
+            
+            st.markdown("### 🔐 ورود به سیستم")
+            st.markdown("لطفاً اطلاعات کاربری خود را وارد کنید")
+            
+            username = st.selectbox(
+                "👤 نام کاربری",
+                options=["انتخاب کنید", "Sajad", "Romina", "Melika", "Fatemeh"]
+            )
+            
+            password = st.text_input("🔑 رمز عبور", type="password")
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                login_btn = st.button("🚀 ورود", type="primary", use_container_width=True)
+            with col_btn2:
+                clear_btn = st.button("🔄 پاک کردن", use_container_width=True)
+            
+            if login_btn:
+                if username == "انتخاب کنید":
+                    st.error("❌ لطفاً نام کاربری را انتخاب کنید")
+                else:
+                    passwords = {
+                        "Sajad": "2232245",
+                        "Romina": "112131",
+                        "Melika": "122232",
+                        "Fatemeh": "132333"
+                    }
+                    
+                    if password == passwords.get(username, ""):
+                        st.session_state.current_user = username
+                        st.session_state.is_authenticated = True
+                        st.session_state.active_page = "kpi"
+                        st.success(f"✅ خوش آمدید {username}!")
+                        st.rerun()
+                    else:
+                        st.error("❌ نام کاربری یا رمز عبور اشتباه است")
+            
+            if clear_btn:
+                st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# ======================
 # SIDEBAR
 # ======================
-with st.sidebar:
-    st.title("📊 KPI Dashboard")
-    
-    # نمایش منو فقط وقتی که مرحله done هستیم
-    if st.session_state.step == "done":
-        # منوی ناوبری اصلی
-        menu_options = ["kpi", "quests", "trend"]
-        menu_labels = ["KPI Dashboard", "Quests", "نمودار روند"]
+def render_sidebar():
+    """سایدبار اصلی بعد از لاگین"""
+    with st.sidebar:
+        st.markdown(f"### 👋 سلام {st.session_state.current_user}!")
+        st.markdown("---")
         
-        selected = st.radio(
-            "منو",
-            options=menu_options,
-            format_func=lambda x: dict(zip(menu_options, menu_labels))[x],
-            index=menu_options.index(st.session_state.active_page)
-        )
+        menu_options = [
+            ("📊 KPI", "kpi"),
+            ("🗡️ Quests", "quests"),
+            ("📈 Trend", "trend")
+        ]
         
-        if selected != st.session_state.active_page:
-            st.session_state.active_page = selected
-            st.rerun()
-    
-    # دکمه شروع مجدد (فقط در حالت KPI)
-    if st.session_state.active_page == "kpi" and st.session_state.step == "done":
-        if st.button("🔄 شروع دوباره"):
-            st.session_state.step = "upload"
+        for emoji_text, page_key in menu_options:
+            if st.button(emoji_text, use_container_width=True, 
+                        type="primary" if st.session_state.active_page == page_key else "secondary"):
+                st.session_state.active_page = page_key
+                st.rerun()
+        
+        st.markdown("---")
+        
+        if st.button("🚪 خروج از سیستم", use_container_width=True):
+            st.session_state.current_user = None
+            st.session_state.is_authenticated = False
+            st.session_state.active_page = "landing"
             st.session_state.df_clean = None
             st.session_state.holidays = []
-            st.session_state.auth_ok = {}
-            st.session_state.active_page = "kpi"
-            st.session_state.current_user = None
-            st.session_state.trend_filters = {
-                "selected_kpi": "Ghorme Sabzi",
-                "selected_designers": ["Team (All)"],
-                "time_range": "Monthly",
-                "password_inputs": {
-                    "Sajad": "",
-                    "Romina": "",
-                    "Melika": "", 
-                    "Fatemeh": ""
-                },
-                "password_verified": {
-                    "Sajad": False,
-                    "Romina": False,
-                    "Melika": False,
-                    "Fatemeh": False
-                }
-            }
             st.rerun()
 
 # ======================
-# STEP 1 — UPLOAD
+# KPI PAGE
 # ======================
-if st.session_state.step == "upload":
-    st.header("📤 آپلود فایل اکسل")
-    uploaded_file = st.file_uploader("فایل Exported را بارگذاری کنید", type=["xlsx"])
-
-    if uploaded_file:
-        st.session_state.df_clean = clean_excel(uploaded_file)
-        st.session_state.step = "ready"
-        st.success("✅ فایل با موفقیت پاکسازی شد")
-
-# ======================
-# STEP 2 — READY
-# ======================
-if st.session_state.step == "ready":
-    st.header("⚙️ آماده محاسبه KPI")
-    if st.button("▶️ Calculate"):
-        st.session_state.step = "done"
-        st.rerun()
-
-# ======================
-# STEP 3 — MAIN DASHBOARD
-# ======================
-if st.session_state.step == "done":
+def render_kpi_page():
+    """صفحه KPI"""
+    st.markdown('<h1 class="main-header">📊 KPI Dashboard</h1>', unsafe_allow_html=True)
     
-    # ======================
-    # QUEST PAGE
-    # ======================
-    if st.session_state.active_page == "quests":
-        st.header("🗡️ Quests")
+    # نمایش باکس آپلود اگر داده‌ای وجود ندارد
+    if st.session_state.df_clean is None:
+        st.markdown('<div class="upload-box">', unsafe_allow_html=True)
+        st.markdown("### 📁 آپلود فایل اکسل")
+        st.markdown("لطفاً فایل اکسل را در اینجا رها کنید یا از دستگاه انتخاب کنید")
+        
+        uploaded_file = st.file_uploader("", type=["xlsx"], label_visibility="collapsed")
+        
+        if uploaded_file is not None:
+            with st.spinner("🔄 در حال پردازش فایل..."):
+                st.session_state.df_clean = clean_excel(uploaded_file)
+                st.success("✅ فایل با موفقیت آپلود و پردازش شد!")
+                st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+    
+    # اگر داده وجود دارد، نمایش KPI
+    df_all = st.session_state.df_clean.copy()
+    
+    # تنظیمات بازه زمانی و تعطیلات
+    st.markdown("### ⚙️ تنظیمات")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        min_d = df_all["Submission date"].min()
+        max_d = df_all["Submission date"].max()
+        start_date, end_date = st.date_input(
+            "📅 بازه تحلیل",
+            value=(min_d, max_d),
+            key="date_range_kpi"
+        )
+    
+    with col2:
+        selected_day = st.date_input("📌 روز تعطیل", value=None, key="holiday_day")
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("➕ افزودن تعطیل", use_container_width=True):
+                if selected_day and selected_day not in st.session_state.holidays:
+                    st.session_state.holidays.append(selected_day)
+                    st.success(f"✅ {selected_day} به تعطیلات اضافه شد")
+                    st.rerun()
+        
+        with col_btn2:
+            if st.button("🗑️ حذف تعطیلات", use_container_width=True):
+                if st.session_state.holidays:
+                    st.session_state.holidays = []
+                    st.success("✅ همه تعطیلات حذف شدند")
+                    st.rerun()
+    
+    # نمایش تعطیلات فعلی
+    if st.session_state.holidays:
+        st.info(f"📋 تعطیلات ثبت شده: {', '.join([str(d) for d in st.session_state.holidays])}")
+    
+    # فیلتر داده‌ها بر اساس بازه زمانی
+    df_filtered = df_all[
+        (df_all["Submission date"] >= pd.to_datetime(start_date)) &
+        (df_all["Submission date"] <= pd.to_datetime(end_date))
+    ]
+    
+    # انتخاب KPI برای نمایش
+    kpi_options = get_kpi_options()
+    
+    # تب‌های مختلف برای هر طراح
+    if st.session_state.current_user == "Sajad":
+        # سجاد همه را می‌بیند
+        tab_names = ["Team KPI", "Sajad KPI", "Romina KPI", "Melika KPI", "Fatemeh KPI"]
+        tab_designers = [None, "Sajad", "Romina", "Melika", "Fatemeh"]
+    else:
+        # دیگران فقط تیم و خودشان را می‌بینند
+        tab_names = ["Team KPI", f"{st.session_state.current_user} KPI"]
+        tab_designers = [None, st.session_state.current_user]
+    
+    tabs = st.tabs([f"**{name}**" for name in tab_names])
+    
+    for idx, (tab, designer) in enumerate(zip(tabs, tab_designers)):
+        with tab:
+            if designer is None:
+                df_to_show = df_filtered
+                title = "تیم"
+            else:
+                df_to_show = df_filtered[df_filtered["Designer Name"] == designer]
+                title = designer
+            
+            total = len(df_to_show)
+            
+            if total == 0:
+                st.warning(f"⚠️ هیچ داده‌ای برای {title} در این بازه زمانی یافت نشد")
+                continue
+            
+            # محاسبه KPIها
+            ghorme = (df_to_show["Type"] == "Ghorme Sabzi").sum()
+            omlet = (df_to_show["Type"] == "Omlet").sum()
+            burger = (df_to_show["Type"] == "Burger").sum()
+            designer_error = df_to_show["Reason"].isin(["Designer Error", "Team-lead: Designer Error"]).sum()
+            revision_2 = (df_to_show["Edit count"] >= 2).sum()
+            late = df_to_show[(df_to_show["Submission hour"] >= time(18, 0)) | 
+                              (df_to_show["Submission date"].dt.date.isin(st.session_state.holidays))].shape[0]
+            
+            # نمایش KPIها در دو ردیف
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("🥬 Ghorme Sabzi", f"{ghorme}", f"{ghorme/total*100:.1f}%")
+                st.plotly_chart(pie_chart("Ghorme Sabzi", ghorme, total, "#2ECC71"), 
+                              use_container_width=True, config={'displayModeBar': False})
+            
+            with col2:
+                st.metric("🥚 Omlet", f"{omlet}", f"{omlet/total*100:.1f}%")
+                st.plotly_chart(pie_chart("Omlet", omlet, total, "#F1C40F"), 
+                              use_container_width=True, config={'displayModeBar': False})
+            
+            with col3:
+                st.metric("🍔 Burger", f"{burger}", f"{burger/total*100:.1f}%")
+                st.plotly_chart(pie_chart("Burger", burger, total, "#E67E22"), 
+                              use_container_width=True, config={'displayModeBar': False})
+            
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                st.metric("❌ Designer Error", f"{designer_error}", f"{designer_error/total*100:.1f}%")
+                st.plotly_chart(pie_chart("Designer Error", designer_error, total, "#E74C3C"), 
+                              use_container_width=True, config={'displayModeBar': False})
+            
+            with col5:
+                st.metric("🔁 Edits > 2", f"{revision_2}", f"{revision_2/total*100:.1f}%")
+                st.plotly_chart(pie_chart("2+ Revisions", revision_2, total, "#8E44AD"), 
+                              use_container_width=True, config={'displayModeBar': False})
+            
+            with col6:
+                st.metric("⏰ Late Submissions", f"{late}", f"{late/total*100:.1f}%")
+                st.plotly_chart(pie_chart("Late", late, total, "#34495E"), 
+                              use_container_width=True, config={'displayModeBar': False})
+    
+    # دکمه آپلود مجدد در پایین صفحه
+    st.markdown("---")
+    if st.button("📤 آپلود فایل اکسل جدید", use_container_width=True):
+        st.session_state.show_upload_modal = True
+    
+    # مودال آپلود مجدد
+    if st.session_state.show_upload_modal:
+        with st.container():
+            st.markdown("""
+            <style>
+            .modal {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 2rem;
+                border-radius: 15px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                z-index: 1000;
+                width: 90%;
+                max-width: 500px;
+            }
+            .modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 999;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown('<div class="modal-overlay"></div>', unsafe_allow_html=True)
+            
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.markdown('<div class="modal">', unsafe_allow_html=True)
+                st.markdown("### 📁 آپلود فایل جدید")
+                
+                new_file = st.file_uploader("فایل اکسل را انتخاب کنید", type=["xlsx"], 
+                                          key="modal_uploader")
+                
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("✅ تایید", use_container_width=True):
+                        if new_file is not None:
+                            st.session_state.df_clean = clean_excel(new_file)
+                            st.session_state.show_upload_modal = False
+                            st.success("✅ فایل جدید با موفقیت آپلود شد!")
+                            st.rerun()
+                
+                with col_btn2:
+                    if st.button("❌ لغو", use_container_width=True):
+                        st.session_state.show_upload_modal = False
+                        st.rerun()
+                
+                st.markdown('</div>', unsafe_allow_html=True)
 
-        if st.button("⬅️ بازگشت به داشبورد KPI"):
-            st.session_state.active_page = "kpi"
-            st.rerun()
-
-        quests = load_quests()
-        user = st.session_state.current_user
-
-        if user == "Sajad":
-            tab1, tab2, tab3 = st.tabs(["➕ New Quest", "📜 All Quests", "🎯 My Quests"])
-
-            with tab1:
-                name = st.text_input("Name the new quest")
-                desc = st.text_area("What describes the quest the best?")
-                deadline = st.date_input("Pose a new deadline", value=date.today())
-                owner = st.selectbox("Assign to", ["Sajad", "Romina", "Melika", "Fatemeh"])
-                if st.button("Finish"):
+# ======================
+# QUESTS PAGE
+# ======================
+def render_quests_page():
+    """صفحه کوئست‌ها"""
+    st.markdown('<h1 class="main-header">🗡️ Quest Management</h1>', unsafe_allow_html=True)
+    
+    quests = load_quests()
+    
+    if st.session_state.current_user == "Sajad":
+        # سجاد - داشبورد کامل
+        tab1, tab2, tab3 = st.tabs(["➕ New Quest", "📜 All Quests", "🎯 My Quests"])
+        
+        with tab1:
+            st.markdown("### 🆕 ایجاد کوئست جدید")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("📝 نام کوئست")
+                description = st.text_area("📋 توضیحات")
+            
+            with col2:
+                deadline = st.date_input("📅 ددلاین", value=date.today())
+                owner = st.selectbox("👤 واگذار به", ["Sajad", "Romina", "Melika", "Fatemeh"])
+            
+            if st.button("✅ ایجاد کوئست", type="primary", use_container_width=True):
+                if name and description:
                     quests.append({
                         "id": str(uuid.uuid4()),
                         "name": name,
-                        "description": desc,
+                        "description": description,
                         "deadline": str(deadline),
                         "owner": owner,
-                        "done": False
+                        "done": False,
+                        "created_by": st.session_state.current_user,
+                        "created_at": str(date.today())
                     })
                     save_quests(quests)
-                    st.success("✅ Quest added")
-
-            with tab2:
-                who = st.selectbox("🗡️ Whose Quests you want to see?", ["Sajad", "Romina", "Melika", "Fatemeh"])
-                for q in [x for x in quests if x["owner"] == who]:
-                    col1, col2 = st.columns([5, 1])
-                    with col1:
-                        st.markdown(f"### {q['name']}")
-                        st.caption(q["description"])
-                        st.write(f"⏰ {q['deadline']}")
-                    with col2:
-                        if st.checkbox("Done", value=q["done"], key=q["id"]):
-                            q["done"] = True
-                        if st.button("🗑️ Delete", key="del"+q["id"]):
-                            quests.remove(q)
-                            save_quests(quests)
-                            st.rerun()
-                save_quests(quests)
-
-            with tab3:
-                for q in [x for x in quests if x["owner"] == "Sajad"]:
-                    st.markdown(f"### {q['name']}")
-                    st.caption(q["description"])
-                    st.write(f"⏰ {q['deadline']} | {'✅ Done' if q['done'] else '⬜ Pending'}")
-
-        else:
-            st.subheader("🎯 My Quests")
-            for q in [x for x in quests if x["owner"] == user]:
-                st.markdown(f"### {q['name']}")
-                st.caption(q["description"])
-                st.write(f"⏰ {q['deadline']} | {'✅ Done' if q['done'] else '⬜ Pending'}")
-    
-    # ======================
-    # TREND ANALYSIS PAGE
-    # ======================
-    elif st.session_state.active_page == "trend":
-        st.header("📈 نمودار روند")
+                    st.success("✅ کوئست جدید با موفقیت ایجاد شد!")
+                    st.rerun()
+                else:
+                    st.error("❌ لطفاً نام و توضیحات کوئست را وارد کنید")
         
-        # دکمه بازگشت
-        if st.button("⬅️ بازگشت به داشبورد KPI"):
-            st.session_state.active_page = "kpi"
-            st.rerun()
-        
-        df_all = st.session_state.df_clean.copy()
-        
-        # ======================
-        # فیلترها در سایدبار
-        # ======================
-        with st.sidebar:
-            if st.session_state.active_page == "trend":
-                st.markdown("---")
-                st.subheader("⚙️ فیلترهای نمودار روند")
-                
-                # 1. فیلتر KPI
-                kpi_options = get_kpi_options()
-                selected_kpi = st.selectbox(
-                    "📊 Select KPI:",
-                    options=list(kpi_options.keys()),
-                    index=list(kpi_options.keys()).index(st.session_state.trend_filters["selected_kpi"])
-                )
-                st.session_state.trend_filters["selected_kpi"] = selected_kpi
-                
-                st.markdown("---")
-                
-                # 2. فیلتر طراحان
-                st.markdown("👤 **Designers:**")
-                designers = ["Sajad", "Romina", "Melika", "Fatemeh", "Team (All)"]
-                
-                selected_designers = []
-                for designer in designers:
-                    if designer == "Team (All)":
-                        if st.checkbox("Team (All)", 
-                                      value="Team (All)" in st.session_state.trend_filters["selected_designers"],
-                                      key=f"check_all"):
-                            if "Team (All)" not in selected_designers:
-                                selected_designers.append("Team (All)")
-                    else:
-                        if st.checkbox(designer, 
-                                      value=designer in st.session_state.trend_filters["selected_designers"],
-                                      key=f"check_{designer}"):
-                            if designer not in selected_designers:
-                                selected_designers.append(designer)
-                
-                st.session_state.trend_filters["selected_designers"] = selected_designers
-                
-                st.markdown("---")
-                
-                # 3. فیلتر بازه زمانی
-                time_options = ["Monthly", "Annually", "All time"]
-                selected_time = st.radio(
-                    "📅 Time Range:",
-                    options=time_options,
-                    index=time_options.index(st.session_state.trend_filters["time_range"])
-                )
-                st.session_state.trend_filters["time_range"] = selected_time
-                
-                st.markdown("---")
-                
-                # 4. ورود پسورد برای طراحان انتخاب شده
-                if selected_designers:
-                    # فقط طراحان فردی (نه Team All)
-                    individual_designers = [d for d in selected_designers if d != "Team (All)"]
-                    
-                    if individual_designers:
-                        st.markdown("🔐 **ورود پسورد:**")
-                        
-                        passwords = {
-                            "Sajad": "2232245",
-                            "Romina": "112131",
-                            "Melika": "122232",
-                            "Fatemeh": "132333"
-                        }
-                        
-                        for designer in individual_designers:
-                            col1, col2 = st.columns([3, 1])
-                            with col1:
-                                password_input = st.text_input(
-                                    f"پسورد {designer}",
-                                    type="password",
-                                    value=st.session_state.trend_filters["password_inputs"][designer],
-                                    key=f"pwd_{designer}"
-                                )
-                                st.session_state.trend_filters["password_inputs"][designer] = password_input
-                            
-                            with col2:
-                                if st.button("تایید", key=f"verify_{designer}"):
-                                    if password_input == passwords[designer]:
-                                        st.session_state.trend_filters["password_verified"][designer] = True
-                                        st.success(f"✅ {designer} تأیید شد")
-                                        st.rerun()
-                                    else:
-                                        st.session_state.trend_filters["password_verified"][designer] = False
-                                        st.error(f"❌ پسورد {designer} اشتباه است")
-                                        st.rerun()
-                            
-                            # نمایش وضعیت تأیید
-                            if st.session_state.trend_filters["password_verified"][designer]:
-                                st.success(f"✅ {designer} تأیید شده")
-                            else:
-                                st.warning(f"⚠️ {designer} نیاز به تأیید")
-                
-                st.markdown("---")
-                
-                # دکمه اعمال فیلترها
-                if st.button("🔄 اعمال فیلترها", type="primary", use_container_width=True):
-                    if not st.session_state.trend_filters["selected_designers"]:
-                        st.error("⚠️ لطفاً حداقل یک طراح انتخاب کنید")
-                    else:
-                        st.rerun()
-        
-        # ======================
-        # بررسی احراز هویت برای طراحان انتخاب شده
-        # ======================
-        unverified_designers = []
-        for designer in st.session_state.trend_filters["selected_designers"]:
-            if designer != "Team (All)" and not st.session_state.trend_filters["password_verified"][designer]:
-                unverified_designers.append(designer)
-        
-        if unverified_designers:
-            st.warning(f"⚠️ نیاز به وارد کردن پسورد برای: {', '.join(unverified_designers)}")
-            st.info("لطفاً در پنل سمت چپ پسورد هر طراح را وارد کرده و دکمه 'تایید' را بزنید.")
-            st.stop()
-        
-        # ======================
-        # ایجاد نمودار چند خطی
-        # ======================
-        if st.session_state.trend_filters["selected_designers"]:
-            holidays = st.session_state.holidays
+        with tab2:
+            st.markdown("### 📋 همه کوئست‌ها")
             
-            fig = create_multi_line_chart(
-                df_all,
+            filter_owner = st.selectbox("فیلتر بر اساس صاحب", 
+                                       ["همه", "Sajad", "Romina", "Melika", "Fatemeh"])
+            
+            filtered_quests = quests if filter_owner == "همه" else [q for q in quests if q["owner"] == filter_owner]
+            
+            if not filtered_quests:
+                st.info("📭 هیچ کوئستی یافت نشد")
+            else:
+                for q in filtered_quests:
+                    with st.container():
+                        st.markdown('<div class="quest-card">', unsafe_allow_html=True)
+                        
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            st.markdown(f"#### {q['name']}")
+                            st.caption(q["description"])
+                            st.markdown(f"**📅 ددلاین:** {q['deadline']} | **👤 صاحب:** {q['owner']}")
+                        
+                        with col2:
+                            status = "✅ انجام شده" if q["done"] else "🔄 در حال انجام"
+                            st.markdown(f"**وضعیت:** {status}")
+                        
+                        with col3:
+                            col_edit, col_del = st.columns(2)
+                            with col_edit:
+                                if st.button("✏️", key=f"edit_{q['id']}"):
+                                    # اینجا می‌توانی مودال ویرایش اضافه کنی
+                                    st.info("ویژگی ویرایش به زودی اضافه می‌شود")
+                            
+                            with col_del:
+                                if st.button("🗑️", key=f"del_{q['id']}"):
+                                    quests.remove(q)
+                                    save_quests(quests)
+                                    st.success("✅ کوئست حذف شد")
+                                    st.rerun()
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+        
+        with tab3:
+            st.markdown("### 🎯 کوئست‌های من")
+            my_quests = [q for q in quests if q["owner"] == "Sajad"]
+            
+            if not my_quests:
+                st.info("📭 هیچ کوئستی برای شما ایجاد نشده است")
+            else:
+                for q in my_quests:
+                    with st.container():
+                        st.markdown('<div class="quest-card">', unsafe_allow_html=True)
+                        
+                        st.markdown(f"#### {q['name']}")
+                        st.caption(q["description"])
+                        
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.markdown(f"**📅 ددلاین:** {q['deadline']}")
+                        
+                        with col2:
+                            if q["done"]:
+                                st.markdown('<span class="success-badge">✅ انجام شده</span>', unsafe_allow_html=True)
+                            else:
+                                st.markdown('<span class="pending-badge">🔄 در حال انجام</span>', unsafe_allow_html=True)
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+    
+    else:
+        # دیگر کاربران - فقط کوئست‌های خودشان
+        st.markdown(f"### 🎯 کوئست‌های {st.session_state.current_user}")
+        
+        user_quests = [q for q in quests if q["owner"] == st.session_state.current_user]
+        
+        if not user_quests:
+            st.info("📭 هیچ کوئستی برای شما ایجاد نشده است")
+        else:
+            for q in user_quests:
+                with st.container():
+                    st.markdown('<div class="quest-card">', unsafe_allow_html=True)
+                    
+                    st.markdown(f"#### {q['name']}")
+                    st.caption(q["description"])
+                    
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"**📅 ددلاین:** {q['deadline']}")
+                        if "created_by" in q:
+                            st.caption(f"ایجاد شده توسط: {q['created_by']}")
+                    
+                    with col2:
+                        if q["done"]:
+                            st.markdown('<span class="success-badge">✅ انجام شده</span>', unsafe_allow_html=True)
+                        else:
+                            st.markdown('<span class="pending-badge">🔄 در حال انجام</span>', unsafe_allow_html=True)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+# ======================
+# TREND PAGE
+# ======================
+def render_trend_page():
+    """صفحه تحلیل روند"""
+    st.markdown('<h1 class="main-header">📈 Trend Analysis</h1>', unsafe_allow_html=True)
+    
+    if st.session_state.df_clean is None:
+        st.warning("⚠️ لطفاً ابتدا از صفحه KPI یک فایل اکسل آپلود کنید")
+        return
+    
+    df_all = st.session_state.df_clean.copy()
+    
+    # فیلترهای بالای صفحه
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        kpi_options = get_kpi_options()
+        selected_kpi = st.selectbox(
+            "📊 Select KPI",
+            options=list(kpi_options.keys()),
+            index=list(kpi_options.keys()).index(st.session_state.trend_filters["selected_kpi"])
+        )
+        st.session_state.trend_filters["selected_kpi"] = selected_kpi
+    
+    with col2:
+        time_options = ["Monthly", "Annually", "All time"]
+        selected_time = st.selectbox(
+            "📅 Time Range",
+            options=time_options,
+            index=time_options.index(st.session_state.trend_filters["time_range"])
+        )
+        st.session_state.trend_filters["time_range"] = selected_time
+    
+    with col3:
+        # تعیین اینکه چه داده‌هایی نمایش داده شود
+        if st.session_state.current_user == "Sajad":
+            # سجاد همه را می‌بیند
+            view_options = ["Team Only", "All Designers", "Sajad Only", "Romina Only", "Melika Only", "Fatemeh Only"]
+            selected_view = st.selectbox("👀 View", options=view_options)
+        else:
+            # دیگران فقط تیم و خودشان را می‌بینند
+            view_options = ["Team Only", f"{st.session_state.current_user} Only"]
+            selected_view = st.selectbox("👀 View", options=view_options)
+    
+    # ایجاد نمودارها
+    holidays = st.session_state.holidays
+    
+    if selected_view == "Team Only" or selected_view == "All Designers":
+        # نمودار تیم
+        fig = create_trend_chart(
+            df_all,
+            st.session_state.trend_filters["selected_kpi"],
+            st.session_state.trend_filters["time_range"],
+            holidays
+        )
+        
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("⚠️ داده‌ای برای نمایش روند یافت نشد")
+    
+    if selected_view == "All Designers" and st.session_state.current_user == "Sajad":
+        # سجاد: نمودار جداگانه برای هر طراح
+        designers = ["Sajad", "Romina", "Melika", "Fatemeh"]
+        
+        cols = st.columns(2)
+        for idx, designer in enumerate(designers):
+            with cols[idx % 2]:
+                df_designer = df_all[df_all["Designer Name"] == designer]
+                if not df_designer.empty:
+                    fig = create_trend_chart(
+                        df_designer,
+                        st.session_state.trend_filters["selected_kpi"],
+                        st.session_state.trend_filters["time_range"],
+                        holidays
+                    )
+                    if fig:
+                        # تغییر عنوان برای نشان دادن طراح
+                        fig.update_layout(title=f"{designer}'s Trend")
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info(f"📊 هیچ داده‌ای برای {designer} یافت نشد")
+                else:
+                    st.info(f"📊 هیچ داده‌ای برای {designer} یافت نشد")
+    
+    elif selected_view.endswith("Only") and selected_view != "Team Only":
+        # نمودار شخصی
+        if st.session_state.current_user == "Sajad":
+            designer = selected_view.replace(" Only", "")
+        else:
+            designer = st.session_state.current_user
+        
+        df_designer = df_all[df_all["Designer Name"] == designer]
+        
+        if not df_designer.empty:
+            fig = create_trend_chart(
+                df_designer,
                 st.session_state.trend_filters["selected_kpi"],
                 st.session_state.trend_filters["time_range"],
-                st.session_state.trend_filters["selected_designers"],
                 holidays
             )
             
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
-                
-                # نمایش آمار خلاصه
-                st.markdown("---")
-                st.subheader("📊 آمار خلاصه")
-                
-                cols = st.columns(len(st.session_state.trend_filters["selected_designers"]))
-                
-                for idx, designer in enumerate(st.session_state.trend_filters["selected_designers"]):
-                    with cols[idx]:
-                        if designer == "Team (All)":
-                            df_filtered = df_all
-                            display_name = "تیم"
-                        else:
-                            df_filtered = df_all[df_all["Designer Name"] == designer]
-                            display_name = designer
-                        
-                        total = len(df_filtered)
-                        kpi_value = calculate_kpi(df_filtered, st.session_state.trend_filters["selected_kpi"], holidays)
-                        
-                        st.metric(
-                            label=f"**{display_name}**",
-                            value=kpi_value,
-                            delta=f"{kpi_value/total*100:.1f}%" if total > 0 else "0%"
-                        )
-                        st.caption(f"از {total} تسک")
             else:
-                st.warning("⚠️ داده‌ای برای نمایش روند یافت نشد")
+                st.warning(f"⚠️ داده‌ای برای نمایش روند {designer} یافت نشد")
         else:
-            st.warning("⚠️ لطفاً حداقل یک طراح از پنل سمت چپ انتخاب کنید")
+            st.warning(f"⚠️ هیچ داده‌ای برای {designer} یافت نشد")
     
-    # ======================
-    # KPI PAGE (اصلی)
-    # ======================
-    else:
-        df_all = st.session_state.df_clean.copy()
-        min_d = df_all["Submission date"].min()
-        max_d = df_all["Submission date"].max()
+    # آمار خلاصه
+    st.markdown("---")
+    st.markdown("### 📊 آمار خلاصه")
+    
+    if selected_view == "Team Only" or selected_view == "All Designers":
+        # آمار تیم
+        total = len(df_all)
+        kpi_value = calculate_kpi(df_all, st.session_state.trend_filters["selected_kpi"], holidays)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("👥 تیم", f"{kpi_value}")
+        with col2:
+            st.metric("📊 مقدار KPI انتخابی", f"{kpi_value}")
+        with col3:
+            if total > 0:
+                st.metric("📈 درصد", f"{kpi_value/total*100:.1f}%")
+    
+    if selected_view == "All Designers" and st.session_state.current_user == "Sajad":
+        # آمار هر طراح برای سجاد
+        designers = ["Sajad", "Romina", "Melika", "Fatemeh"]
+        cols = st.columns(4)
+        
+        for idx, designer in enumerate(designers):
+            with cols[idx]:
+                df_designer = df_all[df_all["Designer Name"] == designer]
+                total = len(df_designer)
+                kpi_value = calculate_kpi(df_designer, st.session_state.trend_filters["selected_kpi"], holidays)
+                
+                st.metric(f"👤 {designer}", f"{kpi_value}", 
+                         f"{kpi_value/total*100:.1f}%" if total > 0 else "0%")
 
-        st.subheader("📅 تنظیم بازه و تعطیلات")
+# ======================
+# MAIN APP FLOW
+# ======================
+def main():
+    """گردش کار اصلی برنامه"""
+    
+    # صفحه لاگین
+    if not st.session_state.is_authenticated:
+        show_login_page()
+        return
+    
+    # بعد از لاگین موفق
+    render_sidebar()
+    
+    # نمایش صفحه فعال
+    if st.session_state.active_page == "kpi":
+        render_kpi_page()
+    elif st.session_state.active_page == "quests":
+        render_quests_page()
+    elif st.session_state.active_page == "trend":
+        render_trend_page()
 
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            start_date, end_date = st.date_input("بازه تحلیل", value=(min_d, max_d))
-
-        with c2:
-            selected_day = st.date_input("روز تعطیل", value=None)
-            if st.button("➕ افزودن"):
-                if selected_day and selected_day not in st.session_state.holidays:
-                    st.session_state.holidays.append(selected_day)
-
-            holidays = st.multiselect("تعطیلات", st.session_state.holidays, st.session_state.holidays)
-
-        df_all = df_all[
-            (df_all["Submission date"] >= pd.to_datetime(start_date)) &
-            (df_all["Submission date"] <= pd.to_datetime(end_date))
-        ]
-
-        tabs = st.tabs(["Team KPI", "Sajad KPI", "Romina KPI", "Melika KPI", "Fatemeh KPI"])
-
-        passwords = {
-            "Sajad": "2232245",
-            "Romina": "112131",
-            "Melika": "122232",
-            "Fatemeh": "132333"
-        }
-
-        def render_kpi(df):
-            total = len(df)
-            if total == 0:
-                st.warning("⚠️ دیتایی وجود ندارد")
-                return
-
-            ghorme = (df["Type"] == "Ghorme Sabzi").sum()
-            omlet = (df["Type"] == "Omlet").sum()
-            burger = (df["Type"] == "Burger").sum()
-            designer_error = df["Reason"].isin(["Designer Error", "Team-lead: Designer Error"]).sum()
-            revision_2 = (df["Edit count"] >= 2).sum()
-            late = df[(df["Submission hour"] >= time(18, 0)) | (df["Submission date"].dt.date.isin(holidays))].shape[0]
-
-            r1 = st.columns(3)
-            r2 = st.columns(3)
-
-            chart_block(r1[0], "Ghorme Sabzi Ratio", "🥬", pie_chart("Ghorme Sabzi", ghorme, total, "#2ECC71"))
-            chart_block(r1[1], "Omlet Ratio", "🥚", pie_chart("Omlet", omlet, total, "#F1C40F"))
-            chart_block(r1[2], "Burger Ratio", "🍔", pie_chart("Burger", burger, total, "#E67E22"))
-            chart_block(r2[0], "Designer Error Rate", "❌", pie_chart("Designer Error", designer_error, total, "#E74C3C"))
-            chart_block(r2[1], "More Than 2 Revisions", "🔁", pie_chart("2+ Revisions", revision_2, total, "#8E44AD"))
-            chart_block(r2[2], "Late Submissions", "⏰", pie_chart("Late", late, total, "#34495E"))
-
-        with tabs[0]:
-            render_kpi(df_all)
-
-        for i, name in enumerate(["Sajad", "Romina", "Melika", "Fatemeh"], start=1):
-            with tabs[i]:
-                if not st.session_state.auth_ok.get(name, False):
-                    pwd = st.text_input(f"پسورد {name}", type="password", key=f"pwd_{name}")
-                    st.warning("⚠️ پسورد شخصی است")
-                    if st.button("ورود", key=f"btn_{name}"):
-                        if pwd == passwords[name]:
-                            st.session_state.auth_ok[name] = True
-                            st.session_state.current_user = name
-                            st.rerun()
-                        else:
-                            st.error("❌ پسورد اشتباه است")
-                else:
-                    render_kpi(df_all[df_all["Designer Name"] == name])
+# ======================
+# RUN APP
+# ======================
+if __name__ == "__main__":
+    main()
