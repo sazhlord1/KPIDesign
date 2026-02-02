@@ -109,6 +109,8 @@ st.markdown("""
         height: 320px !important;
     }
     
+    /* حذف کامل این دو بخش */
+    /*
     .upload-section {
         max-width: 600px;
         margin: 2rem auto;
@@ -127,6 +129,7 @@ st.markdown("""
         border-left: 4px solid #10B981;
         margin-top: 1rem;
     }
+    */
     
     /* Fix chart size */
     .js-plotly-plot {
