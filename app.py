@@ -120,17 +120,30 @@ st.markdown("""
         background-color: transparent !important;
     }
     
-    /* لجند (راهنما) ترنسپرنت */
+    /* لجند کاملاً ترنسپرنت */
     .js-plotly-plot .plotly .legend {
-        background-color: rgba(255, 255, 255, 0.8) !important;
-        backdrop-filter: blur(5px);
-        border: 1px solid rgba(0, 0, 0, 0.1) !important;
-        border-radius: 8px !important;
+        background-color: rgba(255, 255, 255, 0) !important;
+        border: none !important;
+        box-shadow: none !important;
     }
     
-    /* بهبود ظاهر خطوط در لجند */
-    .js-plotly-plot .plotly .legend .traces .legendtext {
+    /* حذف هرگونه stroke از لجند */
+    .js-plotly-plot .plotly .legend rect {
+        stroke: none !important;
+        stroke-opacity: 0 !important;
+        fill-opacity: 0 !important;
+    }
+    
+    /* متن لجند */
+    .js-plotly-plot .plotly .legend .legendtext {
         font-weight: 500 !important;
+        fill: #333333 !important;
+    }
+    
+    /* عنوان لجند */
+    .js-plotly-plot .plotly .legend .legendtitletext {
+        font-weight: 600 !important;
+        fill: #333333 !important;
     }
     
     /* بهبود ظاهر expander */
@@ -506,21 +519,25 @@ def create_trend_chart(df_all, kpi_name, time_range, holidays, designers=None):
         line_shape="linear"  # خطوط مستقیم
     )
     
-    # Chart styling
+    # Chart styling - لجند کاملاً ترنسپرنت
     fig.update_layout(
         xaxis_title="Time",
         yaxis_title="Count",
         hovermode="x unified",
         height=600,
-        legend_title="Designer",
+        legend_title_text="Designer",
         legend=dict(
             yanchor="top",
             y=0.99,
             xanchor="left",
             x=0.01,
-            bgcolor='rgba(255, 255, 255, 0.8)',  # پس‌زمینه نیمه‌شفاف برای لجند
-            bordercolor='rgba(0, 0, 0, 0.1)',
-            borderwidth=1
+            bgcolor='rgba(255, 255, 255, 0)',  # کاملاً ترنسپرنت
+            bordercolor='rgba(255, 255, 255, 0)',  # حاشیه ترنسپرنت
+            borderwidth=0,
+            font=dict(
+                size=12,
+                color="#333333"
+            )
         ),
         margin=dict(l=50, r=50, t=80, b=50),
         plot_bgcolor='rgba(0,0,0,0)',
