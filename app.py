@@ -120,6 +120,19 @@ st.markdown("""
         background-color: transparent !important;
     }
     
+    /* لجند (راهنما) ترنسپرنت */
+    .js-plotly-plot .plotly .legend {
+        background-color: rgba(255, 255, 255, 0.8) !important;
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(0, 0, 0, 0.1) !important;
+        border-radius: 8px !important;
+    }
+    
+    /* بهبود ظاهر خطوط در لجند */
+    .js-plotly-plot .plotly .legend .traces .legendtext {
+        font-weight: 500 !important;
+    }
+    
     /* بهبود ظاهر expander */
     .streamlit-expanderHeader {
         background-color: #f8f9fa !important;
@@ -490,7 +503,7 @@ def create_trend_chart(df_all, kpi_name, time_range, holidays, designers=None):
         title=title,
         markers=True,
         color_discrete_map=color_palette,
-        line_shape="spline"
+        line_shape="linear"  # خطوط مستقیم
     )
     
     # Chart styling
@@ -505,7 +518,7 @@ def create_trend_chart(df_all, kpi_name, time_range, holidays, designers=None):
             y=0.99,
             xanchor="left",
             x=0.01,
-            bgcolor='rgba(255, 255, 255, 0.9)',
+            bgcolor='rgba(255, 255, 255, 0.8)',  # پس‌زمینه نیمه‌شفاف برای لجند
             bordercolor='rgba(0, 0, 0, 0.1)',
             borderwidth=1
         ),
@@ -516,6 +529,11 @@ def create_trend_chart(df_all, kpi_name, time_range, holidays, designers=None):
             family="Arial, sans-serif",
             size=12,
             color="#333333"
+        ),
+        title=dict(
+            x=0.5,
+            xanchor='center',
+            font=dict(size=20)
         )
     )
     
@@ -524,14 +542,18 @@ def create_trend_chart(df_all, kpi_name, time_range, holidays, designers=None):
         gridwidth=1,
         gridcolor='rgba(0,0,0,0.1)',
         tickangle=45,
-        tickfont=dict(size=11)
+        tickfont=dict(size=11),
+        linecolor='rgba(0,0,0,0.2)',
+        zeroline=False
     )
     
     fig.update_yaxes(
         showgrid=True,
         gridwidth=1,
         gridcolor='rgba(0,0,0,0.1)',
-        tickfont=dict(size=11)
+        tickfont=dict(size=11),
+        linecolor='rgba(0,0,0,0.2)',
+        zeroline=False
     )
     
     fig.update_traces(
