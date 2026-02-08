@@ -3,11 +3,12 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import jdatetime
-from datetime import time, date
+from datetime import time, date, datetime
 import json
 import os
 import uuid
 from io import BytesIO
+import hashlib
 
 # ======================
 # PAGE CONFIG
@@ -36,7 +37,17 @@ st.markdown("""
         margin-bottom: 1rem;
         padding-top: 1rem;
     }
-   
+    
+    .login-container {
+        max-width: 400px;
+        margin: 2rem auto;
+        padding: 2.5rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        background-color: #ffffff;
+        border: 1px solid #e5e7eb;
+    }
+    
     .login-title {
         text-align: center;
         color: #374151;
@@ -56,6 +67,15 @@ st.markdown("""
         border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         border-left: 5px solid #3B82F6;
+    }
+    
+    .quest-card {
+        background-color: #ffffff;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        margin-bottom: 1rem;
+        border-left: 5px solid #10B981;
     }
     
     .success-badge {
@@ -90,31 +110,27 @@ st.markdown("""
         height: 320px !important;
     }
     
-    /* اضافه کردن display: none به کلاس‌های مشکل‌ساز */
-    .upload-section {
-        display: none !important;
-        max-width: 600px;
-        margin: 2rem auto;
-        padding: 3rem;
-        border-radius: 15px;
-        background-color: #f8fafc;
-        border: 2px dashed #60A5FA;
-        text-align: center;
-    }
-    
+    /* مخفی کردن المان‌های ناخواسته */
+    .upload-section,
+    [class*="upload"],
     .success-message {
         display: none !important;
-        background-color: #d1fae5;
-        color: #065f46;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #10B981;
-        margin-top: 1rem;
     }
     
     /* Fix chart size */
     .js-plotly-plot {
         height: 320px !important;
+    }
+    
+    /* استایل برای آکاردئون */
+    .streamlit-expanderHeader {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #e9ecef;
+    }
+    
+    .streamlit-expanderContent {
+        padding: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -153,22 +169,108 @@ if "quest_created" not in st.session_state:
     st.session_state.quest_created = False
 
 # ======================
-# QUEST STORAGE
+# DATA STORAGE
 # ======================
-QUEST_FILE = "quests.json"
+def get_data_dir():
+    """Get or create data directory"""
+    data_dir = "dashboard_data"
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    return data_dir
+
+def get_quests_file():
+    """Get quests file path"""
+    return os.path.join(get_data_dir(), "quests.json")
+
+def get_holidays_file():
+    """Get holidays file path"""
+    return os.path.join(get_data_dir(), "holidays.json")
+
+def get_data_hash_file():
+    """Get data hash file path"""
+    return os.path.join(get_data_dir(), "data_hash.json")
 
 def load_quests():
-    if not os.path.exists(QUEST_FILE):
+    """Load quests from persistent storage"""
+    quests_file = get_quests_file()
+    if not os.path.exists(quests_file):
         return []
     try:
-        with open(QUEST_FILE, "r", encoding="utf-8") as f:
+        with open(quests_file, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception as e:
+        st.error(f"Error loading quests: {e}")
         return []
 
 def save_quests(data):
-    with open(QUEST_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    """Save quests to persistent storage"""
+    quests_file = get_quests_file()
+    try:
+        with open(quests_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Error saving quests: {e}")
+
+def load_holidays():
+    """Load holidays from persistent storage"""
+    holidays_file = get_holidays_file()
+    if not os.path.exists(holidays_file):
+        return []
+    try:
+        with open(holidays_file, "r", encoding="utf-8") as f:
+            dates = json.load(f)
+            # Convert string dates back to date objects
+            return [date.fromisoformat(d) if isinstance(d, str) else d for d in dates]
+    except Exception as e:
+        st.error(f"Error loading holidays: {e}")
+        return []
+
+def save_holidays(holidays_list):
+    """Save holidays to persistent storage"""
+    holidays_file = get_holidays_file()
+    try:
+        # Convert date objects to strings for JSON serialization
+        dates_str = [str(d) if isinstance(d, date) else d for d in holidays_list]
+        with open(holidays_file, "w", encoding="utf-8") as f:
+            json.dump(dates_str, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Error saving holidays: {e}")
+
+def calculate_data_hash(df):
+    """Calculate hash of data to detect changes"""
+    if df is None:
+        return ""
+    try:
+        # Convert dataframe to string and hash it
+        data_str = df.to_string()
+        return hashlib.md5(data_str.encode()).hexdigest()
+    except:
+        return ""
+
+def load_data_hash():
+    """Load saved data hash"""
+    hash_file = get_data_hash_file()
+    if not os.path.exists(hash_file):
+        return {"hash": "", "filename": ""}
+    try:
+        with open(hash_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {"hash": "", "filename": ""}
+
+def save_data_hash(hash_value, filename):
+    """Save data hash"""
+    hash_file = get_data_hash_file()
+    try:
+        with open(hash_file, "w", encoding="utf-8") as f:
+            json.dump({"hash": hash_value, "filename": filename}, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+# Load persistent data on startup
+if "holidays_loaded" not in st.session_state:
+    st.session_state.holidays = load_holidays()
+    st.session_state.holidays_loaded = True
 
 # ======================
 # HELPER FUNCTIONS
@@ -298,6 +400,30 @@ def calculate_kpi(df, kpi_name, holidays):
         return df[late_condition].shape[0]
     return 0
 
+def calculate_summary_statistics(df_all, selected_kpi, time_range, holidays, selected_view):
+    """Calculate summary statistics for trend analysis"""
+    stats = {}
+    
+    # Calculate total for selected KPI
+    total_value = calculate_kpi(df_all, selected_kpi, holidays)
+    stats["Team"] = total_value
+    
+    # Calculate for each designer
+    designers = ["Sajad", "Romina", "Melika", "Fatemeh"]
+    for designer in designers:
+        df_designer = df_all[df_all["Designer Name"] == designer]
+        if not df_designer.empty:
+            designer_value = calculate_kpi(df_designer, selected_kpi, holidays)
+            stats[designer] = designer_value
+    
+    # Calculate percentage
+    if total_value > 0:
+        stats["Percentage"] = round((total_value / len(df_all)) * 100, 1)
+    else:
+        stats["Percentage"] = 0
+    
+    return stats
+
 def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=None):
     """Create multi-line chart for trend analysis"""
     kpi_options = get_kpi_options()
@@ -334,7 +460,6 @@ def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=No
         
         # Prepare data
         df = df_designer.copy()
-        df["year_month"] = df["Submission date"].dt.to_period("M")
         
         if time_range == "Monthly":
             # Daily trend for last 30 days
@@ -365,6 +490,9 @@ def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=No
                 all_data.append(designer_df)
         
         else:  # Annually or All time
+            # Create year_month column for grouping
+            df["year_month"] = df["Submission date"].dt.to_period("M")
+            
             if time_range == "Annually":
                 end_date = df["Submission date"].max()
                 start_date = end_date - pd.DateOffset(months=11)
@@ -417,7 +545,22 @@ def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=No
             xanchor="left",
             x=0.01
         ),
-        margin=dict(l=50, r=50, t=80, b=50)
+        margin=dict(l=50, r=50, t=80, b=50),
+        plot_bgcolor='white',
+        paper_bgcolor='white'
+    )
+    
+    fig.update_xaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='#f0f0f0',
+        tickangle=45
+    )
+    
+    fig.update_yaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='#f0f0f0'
     )
     
     fig.update_traces(
@@ -522,7 +665,6 @@ def render_kpi_page():
     if st.session_state.df_clean is None:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.markdown('<div class="upload-section">', unsafe_allow_html=True)
             st.markdown("### 📁 Upload Excel File")
             st.markdown("Please upload your Excel file to start analysis")
             
@@ -531,10 +673,13 @@ def render_kpi_page():
             if uploaded_file is not None:
                 with st.spinner("🔄 Processing file..."):
                     st.session_state.df_clean = clean_excel(uploaded_file)
+                    
+                    # Save data hash for persistence
+                    data_hash = calculate_data_hash(st.session_state.df_clean)
+                    save_data_hash(data_hash, uploaded_file.name)
+                    
                     st.success("✅ File uploaded and processed successfully!")
                     st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
         return
     
     # If data exists, show KPI
@@ -560,6 +705,7 @@ def render_kpi_page():
             if st.button("➕ Add Holiday", use_container_width=True):
                 if selected_day and selected_day not in st.session_state.holidays:
                     st.session_state.holidays.append(selected_day)
+                    save_holidays(st.session_state.holidays)  # Save to file
                     st.success(f"✅ {selected_day} added to holidays")
                     st.rerun()
         
@@ -567,6 +713,7 @@ def render_kpi_page():
             if st.button("🗑️ Clear Holidays", use_container_width=True):
                 if st.session_state.holidays:
                     st.session_state.holidays = []
+                    save_holidays([])  # Save empty list to file
                     st.success("✅ All holidays cleared")
                     st.rerun()
     
@@ -699,6 +846,11 @@ def render_kpi_page():
                     if st.button("✅ Confirm", use_container_width=True):
                         if new_file is not None:
                             st.session_state.df_clean = clean_excel(new_file)
+                            
+                            # Save data hash for persistence
+                            data_hash = calculate_data_hash(st.session_state.df_clean)
+                            save_data_hash(data_hash, new_file.name)
+                            
                             st.session_state.show_upload_modal = False
                             st.success("✅ New file uploaded successfully!")
                             st.rerun()
@@ -760,13 +912,12 @@ def render_quests_page():
         render_quest_edit_form(st.session_state.editing_quest)
         return
     
+    # Load quests from persistent storage
     quests = load_quests()
     
     # Show success message if quest was just created
     if st.session_state.quest_created:
-        st.markdown('<div class="success-message">', unsafe_allow_html=True)
-        st.markdown("✅ **The new quest has been submitted successfully**")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.success("✅ **The new quest has been submitted successfully**")
         st.session_state.quest_created = False
     
     if st.session_state.current_user == "Sajad":
@@ -787,7 +938,7 @@ def render_quests_page():
             
             if st.button("✅ Create Quest", type="primary", use_container_width=True):
                 if name and description:
-                    quests.append({
+                    new_quest = {
                         "id": str(uuid.uuid4()),
                         "name": name,
                         "description": description,
@@ -796,7 +947,8 @@ def render_quests_page():
                         "done": False,
                         "created_by": st.session_state.current_user,
                         "created_at": str(date.today())
-                    })
+                    }
+                    quests.append(new_quest)
                     save_quests(quests)
                     st.session_state.quest_created = True
                     st.rerun()
@@ -945,116 +1097,121 @@ def render_trend_page():
             view_options = ["Team Only", f"{st.session_state.current_user} Only"]
             selected_view = st.selectbox("👀 View", options=view_options)
     
-    # Create charts
+    # Determine which designers to show in chart
+    if selected_view == "Team Only":
+        designers_to_show = ["Team"]
+    elif selected_view == "All Designers" and st.session_state.current_user == "Sajad":
+        designers_to_show = ["Team", "Sajad", "Romina", "Melika", "Fatemeh"]
+    elif selected_view.endswith("Only") and selected_view != "Team Only":
+        designer = selected_view.replace(" Only", "")
+        designers_to_show = [designer]
+    else:
+        designers_to_show = ["Team"]
+    
+    # Create chart FIRST (to make sure it's at the top)
     holidays = st.session_state.holidays
     
-    if selected_view == "Team Only":
-        # Team chart only
-        fig = create_multi_line_chart(
+    fig = create_multi_line_chart(
+        df_all,
+        st.session_state.trend_filters["selected_kpi"],
+        st.session_state.trend_filters["time_range"],
+        holidays,
+        designers=designers_to_show
+    )
+    
+    if fig:
+        # Display chart at the top
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
+    else:
+        st.warning("⚠️ No data found for trend analysis")
+    
+    # Add spacing between chart and summary
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Summary Statistics in expander (collapsible)
+    with st.expander("📊 **Summary Statistics**", expanded=False):
+        # Calculate statistics
+        stats = calculate_summary_statistics(
             df_all,
             st.session_state.trend_filters["selected_kpi"],
             st.session_state.trend_filters["time_range"],
             holidays,
-            designers=["Team"]
+            selected_view
         )
         
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("⚠️ No data found for trend analysis")
-    
-    elif selected_view == "All Designers" and st.session_state.current_user == "Sajad":
-        # All designers in one chart (multi-line)
-        fig = create_multi_line_chart(
-            df_all,
-            st.session_state.trend_filters["selected_kpi"],
-            st.session_state.trend_filters["time_range"],
-            holidays,
-            designers=["Team", "Sajad", "Romina", "Melika", "Fatemeh"]
-        )
-        
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("⚠️ No data found for trend analysis")
-    
-    elif selected_view.endswith("Only") and selected_view != "Team Only":
-        # Personal chart
-        if st.session_state.current_user == "Sajad":
-            designer = selected_view.replace(" Only", "")
-        else:
-            designer = st.session_state.current_user
-        
-        fig = create_multi_line_chart(
-            df_all,
-            st.session_state.trend_filters["selected_kpi"],
-            st.session_state.trend_filters["time_range"],
-            holidays,
-            designers=[designer]
-        )
-        
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning(f"⚠️ No data found for {designer}'s trend")
-    
-    # Summary statistics
-    st.markdown("---")
-    st.markdown("### 📊 Summary Statistics")
-    
-    if selected_view == "Team Only" or selected_view == "All Designers":
-        # Team stats
-        total = len(df_all)
-        kpi_value = calculate_kpi(df_all, st.session_state.trend_filters["selected_kpi"], holidays)
-        
+        # Display statistics in columns
         col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("👥 Team", f"{kpi_value}")
-        with col2:
-            st.metric("📊 Selected KPI Value", f"{kpi_value}")
-        with col3:
-            if total > 0:
-                st.metric("📈 Percentage", f"{kpi_value/total*100:.1f}%")
-    
-    if selected_view == "All Designers" and st.session_state.current_user == "Sajad":
-        # Individual stats for Sajad
-        st.markdown("#### Individual Statistics")
-        designers = ["Sajad", "Romina", "Melika", "Fatemeh"]
-        cols = st.columns(4)
         
-        for idx, designer in enumerate(designers):
-            with cols[idx]:
-                df_designer = df_all[df_all["Designer Name"] == designer]
-                total = len(df_designer)
-                kpi_value = calculate_kpi(df_designer, st.session_state.trend_filters["selected_kpi"], holidays)
-                
-                st.metric(f"👤 {designer}", f"{kpi_value}", 
-                         f"{kpi_value/total*100:.1f}%" if total > 0 else "0%")
+        with col1:
+            st.metric(
+                label="👥 Team Total", 
+                value=stats.get("Team", 0),
+                delta=None
+            )
+            
+            # Show individual statistics if viewing all designers
+            if selected_view == "All Designers":
+                st.markdown("**Individual Statistics:**")
+                for designer in ["Sajad", "Romina", "Melika", "Fatemeh"]:
+                    if designer in stats:
+                        st.markdown(f"• **{designer}:** {stats[designer]}")
+        
+        with col2:
+            st.metric(
+                label="🎯 Selected KPI Value", 
+                value=stats.get("Team", 0),
+                delta=None
+            )
+            
+            if selected_view != "Team Only" and selected_view != "All Designers":
+                designer = selected_view.replace(" Only", "")
+                if designer in stats:
+                    st.metric(
+                        label=f"👤 {designer}'s Value", 
+                        value=stats[designer],
+                        delta=None
+                    )
+        
+        with col3:
+            st.metric(
+                label="📈 Percentage", 
+                value=f"{stats.get('Percentage', 0)}%",
+                delta=None
+            )
+            
+            # Add some explanatory text
+            st.caption(f"Percentage of {st.session_state.trend_filters['selected_kpi']} in total data")
 
 # ======================
-# MAIN APP FLOW
+# MAIN APP
 # ======================
 def main():
-    """Main application flow"""
-    
-    # Login page
+    # Check if user is authenticated
     if not st.session_state.is_authenticated:
         show_login_page()
-        return
-    
-    # After successful login
-    render_sidebar()
-    
-    # Show active page
-    if st.session_state.active_page == "kpi":
-        render_kpi_page()
-    elif st.session_state.active_page == "quests":
-        render_quests_page()
-    elif st.session_state.active_page == "trend":
-        render_trend_page()
+    else:
+        render_sidebar()
+        
+        if st.session_state.active_page == "kpi":
+            render_kpi_page()
+        elif st.session_state.active_page == "quests":
+            render_quests_page()
+        elif st.session_state.active_page == "trend":
+            render_trend_page()
 
 # ======================
-# RUN APP
+# CHECK FOR PERSISTENT DATA ON STARTUP
 # ======================
+# Try to load previously uploaded data if exists
+if "data_loaded" not in st.session_state:
+    # Check if we have saved data hash
+    saved_hash_info = load_data_hash()
+    if saved_hash_info.get("hash"):
+        # We could potentially load saved data here
+        # For now, we'll just note that we've checked
+        pass
+    st.session_state.data_loaded = True
+
+# Run the app
 if __name__ == "__main__":
     main()
