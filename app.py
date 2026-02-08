@@ -106,10 +106,6 @@ st.markdown("""
         font-size: 1rem;
     }
     
-    .chart-container {
-        height: 320px !important;
-    }
-    
     /* مخفی کردن المان‌های ناخواسته */
     .upload-section,
     [class*="upload"],
@@ -117,20 +113,41 @@ st.markdown("""
         display: none !important;
     }
     
-    /* Fix chart size */
-    .js-plotly-plot {
-        height: 320px !important;
+    /* بک‌گراند ترنسپرنت برای چارت‌ها */
+    .js-plotly-plot .plotly,
+    .js-plotly-plot .plotly .modebar,
+    .js-plotly-plot .plotly .main-svg {
+        background-color: transparent !important;
     }
     
-    /* استایل برای آکاردئون */
+    /* بهبود ظاهر expander */
     .streamlit-expanderHeader {
-        background-color: #f8f9fa;
-        border-radius: 8px;
-        border: 1px solid #e9ecef;
+        background-color: #f8f9fa !important;
+        border-radius: 8px !important;
+        border: 1px solid #e9ecef !important;
+        font-weight: 600 !important;
     }
     
     .streamlit-expanderContent {
-        padding: 1rem 0;
+        background-color: white !important;
+        border-radius: 0 0 8px 8px !important;
+        border: 1px solid #e9ecef !important;
+        border-top: none !important;
+    }
+    
+    /* فاصله‌گذاری بهتر */
+    .element-container {
+        margin-bottom: 1rem;
+    }
+    
+    /* بهبود ظاهر selectbox */
+    .stSelectbox > div > div {
+        border-radius: 8px !important;
+    }
+    
+    /* بهبود ظاهر date input */
+    .stDateInput > div > div {
+        border-radius: 8px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -186,10 +203,6 @@ def get_holidays_file():
     """Get holidays file path"""
     return os.path.join(get_data_dir(), "holidays.json")
 
-def get_data_hash_file():
-    """Get data hash file path"""
-    return os.path.join(get_data_dir(), "data_hash.json")
-
 def load_quests():
     """Load quests from persistent storage"""
     quests_file = get_quests_file()
@@ -235,37 +248,6 @@ def save_holidays(holidays_list):
             json.dump(dates_str, f, ensure_ascii=False, indent=2)
     except Exception as e:
         st.error(f"Error saving holidays: {e}")
-
-def calculate_data_hash(df):
-    """Calculate hash of data to detect changes"""
-    if df is None:
-        return ""
-    try:
-        # Convert dataframe to string and hash it
-        data_str = df.to_string()
-        return hashlib.md5(data_str.encode()).hexdigest()
-    except:
-        return ""
-
-def load_data_hash():
-    """Load saved data hash"""
-    hash_file = get_data_hash_file()
-    if not os.path.exists(hash_file):
-        return {"hash": "", "filename": ""}
-    try:
-        with open(hash_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {"hash": "", "filename": ""}
-
-def save_data_hash(hash_value, filename):
-    """Save data hash"""
-    hash_file = get_data_hash_file()
-    try:
-        with open(hash_file, "w", encoding="utf-8") as f:
-            json.dump({"hash": hash_value, "filename": filename}, f, ensure_ascii=False, indent=2)
-    except:
-        pass
 
 # Load persistent data on startup
 if "holidays_loaded" not in st.session_state:
@@ -370,7 +352,9 @@ def pie_chart(title, value, total, color):
     fig.update_layout(
         showlegend=False, 
         height=320,
-        margin=dict(l=20, r=20, t=40, b=20)
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
     )
     return fig
 
@@ -400,31 +384,7 @@ def calculate_kpi(df, kpi_name, holidays):
         return df[late_condition].shape[0]
     return 0
 
-def calculate_summary_statistics(df_all, selected_kpi, time_range, holidays, selected_view):
-    """Calculate summary statistics for trend analysis"""
-    stats = {}
-    
-    # Calculate total for selected KPI
-    total_value = calculate_kpi(df_all, selected_kpi, holidays)
-    stats["Team"] = total_value
-    
-    # Calculate for each designer
-    designers = ["Sajad", "Romina", "Melika", "Fatemeh"]
-    for designer in designers:
-        df_designer = df_all[df_all["Designer Name"] == designer]
-        if not df_designer.empty:
-            designer_value = calculate_kpi(df_designer, selected_kpi, holidays)
-            stats[designer] = designer_value
-    
-    # Calculate percentage
-    if total_value > 0:
-        stats["Percentage"] = round((total_value / len(df_all)) * 100, 1)
-    else:
-        stats["Percentage"] = 0
-    
-    return stats
-
-def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=None):
+def create_trend_chart(df_all, kpi_name, time_range, holidays, designers=None):
     """Create multi-line chart for trend analysis"""
     kpi_options = get_kpi_options()
     emoji = kpi_options[kpi_name]["emoji"]
@@ -529,7 +489,8 @@ def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=No
         color="designer",
         title=title,
         markers=True,
-        color_discrete_map=color_palette
+        color_discrete_map=color_palette,
+        line_shape="spline"
     )
     
     # Chart styling
@@ -537,35 +498,46 @@ def create_multi_line_chart(df_all, kpi_name, time_range, holidays, designers=No
         xaxis_title="Time",
         yaxis_title="Count",
         hovermode="x unified",
-        height=500,
+        height=600,
         legend_title="Designer",
         legend=dict(
             yanchor="top",
             y=0.99,
             xanchor="left",
-            x=0.01
+            x=0.01,
+            bgcolor='rgba(255, 255, 255, 0.9)',
+            bordercolor='rgba(0, 0, 0, 0.1)',
+            borderwidth=1
         ),
         margin=dict(l=50, r=50, t=80, b=50),
-        plot_bgcolor='white',
-        paper_bgcolor='white'
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(
+            family="Arial, sans-serif",
+            size=12,
+            color="#333333"
+        )
     )
     
     fig.update_xaxes(
         showgrid=True,
         gridwidth=1,
-        gridcolor='#f0f0f0',
-        tickangle=45
+        gridcolor='rgba(0,0,0,0.1)',
+        tickangle=45,
+        tickfont=dict(size=11)
     )
     
     fig.update_yaxes(
         showgrid=True,
         gridwidth=1,
-        gridcolor='#f0f0f0'
+        gridcolor='rgba(0,0,0,0.1)',
+        tickfont=dict(size=11)
     )
     
     fig.update_traces(
         line=dict(width=3),
-        marker=dict(size=8)
+        marker=dict(size=8),
+        hovertemplate='<b>%{x}</b><br>Count: %{y}<extra></extra>'
     )
     
     return fig
@@ -673,11 +645,6 @@ def render_kpi_page():
             if uploaded_file is not None:
                 with st.spinner("🔄 Processing file..."):
                     st.session_state.df_clean = clean_excel(uploaded_file)
-                    
-                    # Save data hash for persistence
-                    data_hash = calculate_data_hash(st.session_state.df_clean)
-                    save_data_hash(data_hash, uploaded_file.name)
-                    
                     st.success("✅ File uploaded and processed successfully!")
                     st.rerun()
         return
@@ -705,7 +672,7 @@ def render_kpi_page():
             if st.button("➕ Add Holiday", use_container_width=True):
                 if selected_day and selected_day not in st.session_state.holidays:
                     st.session_state.holidays.append(selected_day)
-                    save_holidays(st.session_state.holidays)  # Save to file
+                    save_holidays(st.session_state.holidays)
                     st.success(f"✅ {selected_day} added to holidays")
                     st.rerun()
         
@@ -713,7 +680,7 @@ def render_kpi_page():
             if st.button("🗑️ Clear Holidays", use_container_width=True):
                 if st.session_state.holidays:
                     st.session_state.holidays = []
-                    save_holidays([])  # Save empty list to file
+                    save_holidays([])
                     st.success("✅ All holidays cleared")
                     st.rerun()
     
@@ -729,11 +696,9 @@ def render_kpi_page():
     
     # Tabs for different designers
     if st.session_state.current_user == "Sajad":
-        # Sajad can see everyone
         tab_names = ["Team KPI", "Sajad KPI", "Romina KPI", "Melika KPI", "Fatemeh KPI"]
         tab_designers = [None, "Sajad", "Romina", "Melika", "Fatemeh"]
     else:
-        # Others can only see team and themselves
         tab_names = ["Team KPI", f"{st.session_state.current_user} KPI"]
         tab_designers = [None, st.session_state.current_user]
     
@@ -846,11 +811,6 @@ def render_kpi_page():
                     if st.button("✅ Confirm", use_container_width=True):
                         if new_file is not None:
                             st.session_state.df_clean = clean_excel(new_file)
-                            
-                            # Save data hash for persistence
-                            data_hash = calculate_data_hash(st.session_state.df_clean)
-                            save_data_hash(data_hash, new_file.name)
-                            
                             st.session_state.show_upload_modal = False
                             st.success("✅ New file uploaded successfully!")
                             st.rerun()
@@ -1067,37 +1027,38 @@ def render_trend_page():
     
     df_all = st.session_state.df_clean.copy()
     
-    # Filters at top of page
-    col1, col2, col3 = st.columns(3)
+    # Filters container
+    with st.container():
+        st.markdown("### ⚙️ Filters")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            kpi_options = get_kpi_options()
+            selected_kpi = st.selectbox(
+                "📊 Select KPI",
+                options=list(kpi_options.keys()),
+                index=list(kpi_options.keys()).index(st.session_state.trend_filters["selected_kpi"])
+            )
+            st.session_state.trend_filters["selected_kpi"] = selected_kpi
+        
+        with col2:
+            time_options = ["Monthly", "Annually", "All time"]
+            selected_time = st.selectbox(
+                "📅 Time Range",
+                options=time_options,
+                index=time_options.index(st.session_state.trend_filters["time_range"])
+            )
+            st.session_state.trend_filters["time_range"] = selected_time
+        
+        with col3:
+            if st.session_state.current_user == "Sajad":
+                view_options = ["Team Only", "All Designers", "Sajad Only", "Romina Only", "Melika Only", "Fatemeh Only"]
+                selected_view = st.selectbox("👀 View", options=view_options)
+            else:
+                view_options = ["Team Only", f"{st.session_state.current_user} Only"]
+                selected_view = st.selectbox("👀 View", options=view_options)
     
-    with col1:
-        kpi_options = get_kpi_options()
-        selected_kpi = st.selectbox(
-            "📊 Select KPI",
-            options=list(kpi_options.keys()),
-            index=list(kpi_options.keys()).index(st.session_state.trend_filters["selected_kpi"])
-        )
-        st.session_state.trend_filters["selected_kpi"] = selected_kpi
-    
-    with col2:
-        time_options = ["Monthly", "Annually", "All time"]
-        selected_time = st.selectbox(
-            "📅 Time Range",
-            options=time_options,
-            index=time_options.index(st.session_state.trend_filters["time_range"])
-        )
-        st.session_state.trend_filters["time_range"] = selected_time
-    
-    with col3:
-        # Determine what to show
-        if st.session_state.current_user == "Sajad":
-            view_options = ["Team Only", "All Designers", "Sajad Only", "Romina Only", "Melika Only", "Fatemeh Only"]
-            selected_view = st.selectbox("👀 View", options=view_options)
-        else:
-            view_options = ["Team Only", f"{st.session_state.current_user} Only"]
-            selected_view = st.selectbox("👀 View", options=view_options)
-    
-    # Determine which designers to show in chart
+    # Determine which designers to show
     if selected_view == "Team Only":
         designers_to_show = ["Team"]
     elif selected_view == "All Designers" and st.session_state.current_user == "Sajad":
@@ -1108,10 +1069,10 @@ def render_trend_page():
     else:
         designers_to_show = ["Team"]
     
-    # Create chart FIRST (to make sure it's at the top)
+    # Create and display chart
     holidays = st.session_state.holidays
     
-    fig = create_multi_line_chart(
+    fig = create_trend_chart(
         df_all,
         st.session_state.trend_filters["selected_kpi"],
         st.session_state.trend_filters["time_range"],
@@ -1120,67 +1081,17 @@ def render_trend_page():
     )
     
     if fig:
-        # Display chart at the top
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
+        # Chart container
+        with st.container():
+            st.markdown("### 📊 Trend Chart")
+            st.plotly_chart(fig, use_container_width=True, config={
+                'displayModeBar': True,
+                'displaylogo': False,
+                'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+                'responsive': True
+            })
     else:
         st.warning("⚠️ No data found for trend analysis")
-    
-    # Add spacing between chart and summary
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Summary Statistics in expander (collapsible)
-    with st.expander("📊 **Summary Statistics**", expanded=False):
-        # Calculate statistics
-        stats = calculate_summary_statistics(
-            df_all,
-            st.session_state.trend_filters["selected_kpi"],
-            st.session_state.trend_filters["time_range"],
-            holidays,
-            selected_view
-        )
-        
-        # Display statistics in columns
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric(
-                label="👥 Team Total", 
-                value=stats.get("Team", 0),
-                delta=None
-            )
-            
-            # Show individual statistics if viewing all designers
-            if selected_view == "All Designers":
-                st.markdown("**Individual Statistics:**")
-                for designer in ["Sajad", "Romina", "Melika", "Fatemeh"]:
-                    if designer in stats:
-                        st.markdown(f"• **{designer}:** {stats[designer]}")
-        
-        with col2:
-            st.metric(
-                label="🎯 Selected KPI Value", 
-                value=stats.get("Team", 0),
-                delta=None
-            )
-            
-            if selected_view != "Team Only" and selected_view != "All Designers":
-                designer = selected_view.replace(" Only", "")
-                if designer in stats:
-                    st.metric(
-                        label=f"👤 {designer}'s Value", 
-                        value=stats[designer],
-                        delta=None
-                    )
-        
-        with col3:
-            st.metric(
-                label="📈 Percentage", 
-                value=f"{stats.get('Percentage', 0)}%",
-                delta=None
-            )
-            
-            # Add some explanatory text
-            st.caption(f"Percentage of {st.session_state.trend_filters['selected_kpi']} in total data")
 
 # ======================
 # MAIN APP
@@ -1198,19 +1109,6 @@ def main():
             render_quests_page()
         elif st.session_state.active_page == "trend":
             render_trend_page()
-
-# ======================
-# CHECK FOR PERSISTENT DATA ON STARTUP
-# ======================
-# Try to load previously uploaded data if exists
-if "data_loaded" not in st.session_state:
-    # Check if we have saved data hash
-    saved_hash_info = load_data_hash()
-    if saved_hash_info.get("hash"):
-        # We could potentially load saved data here
-        # For now, we'll just note that we've checked
-        pass
-    st.session_state.data_loaded = True
 
 # Run the app
 if __name__ == "__main__":
