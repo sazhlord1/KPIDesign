@@ -24,119 +24,39 @@ st.set_page_config(
 # ======================
 # DATABASE SETUP (PERSISTENT STORAGE)
 # ======================
+from supabase import create_client, Client
+
 @st.cache_resource
-def init_database():
-    """Initialize SQLite database for persistent storage"""
-    # این فایل تو سرور Streamlit Cloud ذخیره می‌شه و نمی‌ره
-    db_path = "persistent_data.db"
-    
-    # اتصال به دیتابیس
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    c = conn.cursor()
-    
-    # ایجاد جدول quests اگه وجود نداشته باشه
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS quests (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            deadline TEXT,
-            owner TEXT,
-            done INTEGER DEFAULT 0,
-            created_by TEXT,
-            created_at TEXT
-        )
-    ''')
-    
-    conn.commit()
-    return conn
+def init_supabase():
+    """Initialize Supabase connection"""
+    url = st.secrets["https://vqxbmidefmptnbyjgcwi.supabase.co"]
+    key = st.secrets["sb_publishable_VcbSFsLTF2JhIDSwfLxT9w_DDUZ32BC"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # ======================
 # QUEST FUNCTIONS WITH DATABASE
 # ======================
 def load_quests():
-    """Load quests from database"""
+    """Load quests from Supabase"""
     try:
-        conn = init_database()
-        c = conn.cursor()
-        
-        # خوندن همه کوئست‌ها
-        c.execute('SELECT id, name, description, deadline, owner, done, created_by, created_at FROM quests')
-        rows = c.fetchall()
-        
-        quests = []
-        for row in rows:
-            quest = {
-                "id": row[0],
-                "name": row[1],
-                "description": row[2],
-                "deadline": row[3],
-                "owner": row[4],
-                "done": bool(row[5]),
-                "created_by": row[6] if row[6] else "",
-                "created_at": row[7] if row[7] else str(date.today())
-            }
-            quests.append(quest)
-        
+        response = supabase.table("quests").select("*").execute()
+        quests = response.data
+        # تبدیل done از عدد به boolean
+        for q in quests:
+            q["done"] = bool(q.get("done", 0))
         return quests
     except Exception as e:
         st.error(f"Error loading quests: {e}")
         return []
 
-def save_quests(quests):
-    """Save all quests to database (replace all)"""
-    try:
-        conn = init_database()
-        c = conn.cursor()
-        
-        # پاک کردن همه کوئست‌ها
-        c.execute('DELETE FROM quests')
-        
-        # ذخیره کوئست‌های جدید
-        for quest in quests:
-            c.execute('''
-                INSERT INTO quests 
-                (id, name, description, deadline, owner, done, created_by, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                quest["id"],
-                quest["name"],
-                quest["description"],
-                quest["deadline"],
-                quest["owner"],
-                1 if quest["done"] else 0,
-                quest.get("created_by", ""),
-                quest.get("created_at", str(date.today()))
-            ))
-        
-        conn.commit()
-        return True
-    except Exception as e:
-        st.error(f"Error saving quests: {e}")
-        return False
-
 def add_quest(quest_data):
-    """Add a new quest to database"""
+    """Add a new quest to Supabase"""
     try:
-        conn = init_database()
-        c = conn.cursor()
-        
-        c.execute('''
-            INSERT INTO quests 
-            (id, name, description, deadline, owner, done, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            quest_data["id"],
-            quest_data["name"],
-            quest_data["description"],
-            quest_data["deadline"],
-            quest_data["owner"],
-            1 if quest_data.get("done", False) else 0,
-            quest_data.get("created_by", ""),
-            quest_data.get("created_at", str(date.today()))
-        ))
-        
-        conn.commit()
+        # تبدیل boolean به عدد برای Supabase
+        quest_data["done"] = 1 if quest_data.get("done", False) else 0
+        response = supabase.table("quests").insert(quest_data).execute()
         return True
     except Exception as e:
         st.error(f"Error adding quest: {e}")
@@ -145,23 +65,12 @@ def add_quest(quest_data):
 def update_quest(quest_id, updated_data):
     """Update an existing quest"""
     try:
-        conn = init_database()
-        c = conn.cursor()
-        
-        c.execute('''
-            UPDATE quests 
-            SET name = ?, description = ?, deadline = ?, owner = ?, done = ?
-            WHERE id = ?
-        ''', (
-            updated_data["name"],
-            updated_data["description"],
-            updated_data["deadline"],
-            updated_data["owner"],
-            1 if updated_data.get("done", False) else 0,
-            quest_id
-        ))
-        
-        conn.commit()
+        # تبدیل boolean به عدد برای Supabase
+        updated_data["done"] = 1 if updated_data.get("done", False) else 0
+        response = (supabase.table("quests")
+                   .update(updated_data)
+                   .eq("id", quest_id)
+                   .execute())
         return True
     except Exception as e:
         st.error(f"Error updating quest: {e}")
@@ -170,16 +79,14 @@ def update_quest(quest_id, updated_data):
 def delete_quest(quest_id):
     """Delete a quest"""
     try:
-        conn = init_database()
-        c = conn.cursor()
-        
-        c.execute('DELETE FROM quests WHERE id = ?', (quest_id,))
-        conn.commit()
+        response = (supabase.table("quests")
+                   .delete()
+                   .eq("id", quest_id)
+                   .execute())
         return True
     except Exception as e:
         st.error(f"Error deleting quest: {e}")
         return False
-
 # ======================
 # CUSTOM CSS
 # ======================
