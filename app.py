@@ -9,6 +9,7 @@ import os
 import uuid
 from io import BytesIO
 import hashlib
+import sqlite3
 
 # ======================
 # PAGE CONFIG
@@ -19,6 +20,165 @@ st.set_page_config(
     initial_sidebar_state="expanded",
     page_icon="📊"
 )
+
+# ======================
+# DATABASE SETUP (PERSISTENT STORAGE)
+# ======================
+@st.cache_resource
+def init_database():
+    """Initialize SQLite database for persistent storage"""
+    # این فایل تو سرور Streamlit Cloud ذخیره می‌شه و نمی‌ره
+    db_path = "persistent_data.db"
+    
+    # اتصال به دیتابیس
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    c = conn.cursor()
+    
+    # ایجاد جدول quests اگه وجود نداشته باشه
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS quests (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            deadline TEXT,
+            owner TEXT,
+            done INTEGER DEFAULT 0,
+            created_by TEXT,
+            created_at TEXT
+        )
+    ''')
+    
+    conn.commit()
+    return conn
+
+# ======================
+# QUEST FUNCTIONS WITH DATABASE
+# ======================
+def load_quests():
+    """Load quests from database"""
+    try:
+        conn = init_database()
+        c = conn.cursor()
+        
+        # خوندن همه کوئست‌ها
+        c.execute('SELECT id, name, description, deadline, owner, done, created_by, created_at FROM quests')
+        rows = c.fetchall()
+        
+        quests = []
+        for row in rows:
+            quest = {
+                "id": row[0],
+                "name": row[1],
+                "description": row[2],
+                "deadline": row[3],
+                "owner": row[4],
+                "done": bool(row[5]),
+                "created_by": row[6] if row[6] else "",
+                "created_at": row[7] if row[7] else str(date.today())
+            }
+            quests.append(quest)
+        
+        return quests
+    except Exception as e:
+        st.error(f"Error loading quests: {e}")
+        return []
+
+def save_quests(quests):
+    """Save all quests to database (replace all)"""
+    try:
+        conn = init_database()
+        c = conn.cursor()
+        
+        # پاک کردن همه کوئست‌ها
+        c.execute('DELETE FROM quests')
+        
+        # ذخیره کوئست‌های جدید
+        for quest in quests:
+            c.execute('''
+                INSERT INTO quests 
+                (id, name, description, deadline, owner, done, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                quest["id"],
+                quest["name"],
+                quest["description"],
+                quest["deadline"],
+                quest["owner"],
+                1 if quest["done"] else 0,
+                quest.get("created_by", ""),
+                quest.get("created_at", str(date.today()))
+            ))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Error saving quests: {e}")
+        return False
+
+def add_quest(quest_data):
+    """Add a new quest to database"""
+    try:
+        conn = init_database()
+        c = conn.cursor()
+        
+        c.execute('''
+            INSERT INTO quests 
+            (id, name, description, deadline, owner, done, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            quest_data["id"],
+            quest_data["name"],
+            quest_data["description"],
+            quest_data["deadline"],
+            quest_data["owner"],
+            1 if quest_data.get("done", False) else 0,
+            quest_data.get("created_by", ""),
+            quest_data.get("created_at", str(date.today()))
+        ))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Error adding quest: {e}")
+        return False
+
+def update_quest(quest_id, updated_data):
+    """Update an existing quest"""
+    try:
+        conn = init_database()
+        c = conn.cursor()
+        
+        c.execute('''
+            UPDATE quests 
+            SET name = ?, description = ?, deadline = ?, owner = ?, done = ?
+            WHERE id = ?
+        ''', (
+            updated_data["name"],
+            updated_data["description"],
+            updated_data["deadline"],
+            updated_data["owner"],
+            1 if updated_data.get("done", False) else 0,
+            quest_id
+        ))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Error updating quest: {e}")
+        return False
+
+def delete_quest(quest_id):
+    """Delete a quest"""
+    try:
+        conn = init_database()
+        c = conn.cursor()
+        
+        c.execute('DELETE FROM quests WHERE id = ?', (quest_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Error deleting quest: {e}")
+        return False
 
 # ======================
 # CUSTOM CSS
@@ -212,7 +372,7 @@ if "quest_created" not in st.session_state:
     st.session_state.quest_created = False
 
 # ======================
-# DATA STORAGE
+# DATA STORAGE FOR HOLIDAYS
 # ======================
 def get_data_dir():
     """Get or create data directory"""
@@ -221,34 +381,9 @@ def get_data_dir():
         os.makedirs(data_dir)
     return data_dir
 
-def get_quests_file():
-    """Get quests file path"""
-    return os.path.join(get_data_dir(), "quests.json")
-
 def get_holidays_file():
     """Get holidays file path"""
     return os.path.join(get_data_dir(), "holidays.json")
-
-def load_quests():
-    """Load quests from persistent storage"""
-    quests_file = get_quests_file()
-    if not os.path.exists(quests_file):
-        return []
-    try:
-        with open(quests_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        st.error(f"Error loading quests: {e}")
-        return []
-
-def save_quests(data):
-    """Save quests to persistent storage"""
-    quests_file = get_quests_file()
-    try:
-        with open(quests_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        st.error(f"Error saving quests: {e}")
 
 def load_holidays():
     """Load holidays from persistent storage"""
@@ -879,23 +1014,18 @@ def render_quest_edit_form(quest):
     with col1:
         if st.button("💾 Save Changes", type="primary", use_container_width=True):
             # Update quest
-            quest["name"] = name
-            quest["description"] = description
-            quest["deadline"] = str(deadline)
-            quest["owner"] = owner
-            quest["done"] = done
+            updated_quest = {
+                "name": name,
+                "description": description,
+                "deadline": str(deadline),
+                "owner": owner,
+                "done": done
+            }
             
-            # Save to file
-            quests = load_quests()
-            for i, q in enumerate(quests):
-                if q["id"] == quest["id"]:
-                    quests[i] = quest
-                    break
-            
-            save_quests(quests)
-            st.session_state.editing_quest = None
-            st.success("✅ Quest updated successfully!")
-            st.rerun()
+            if update_quest(quest["id"], updated_quest):
+                st.session_state.editing_quest = None
+                st.success("✅ Quest updated successfully!")
+                st.rerun()
     
     with col2:
         if st.button("❌ Cancel", use_container_width=True):
@@ -911,7 +1041,7 @@ def render_quests_page():
         render_quest_edit_form(st.session_state.editing_quest)
         return
     
-    # Load quests from persistent storage
+    # Load quests from database
     quests = load_quests()
     
     # Show success message if quest was just created
@@ -947,10 +1077,9 @@ def render_quests_page():
                         "created_by": st.session_state.current_user,
                         "created_at": str(date.today())
                     }
-                    quests.append(new_quest)
-                    save_quests(quests)
-                    st.session_state.quest_created = True
-                    st.rerun()
+                    if add_quest(new_quest):
+                        st.session_state.quest_created = True
+                        st.rerun()
                 else:
                     st.error("❌ Please enter quest name and description")
         
@@ -990,10 +1119,9 @@ def render_quests_page():
                             
                             with col_del:
                                 if st.button("🗑️", key=f"del_{q['id']}"):
-                                    quests.remove(q)
-                                    save_quests(quests)
-                                    st.success("✅ Quest deleted")
-                                    st.rerun()
+                                    if delete_quest(q["id"]):
+                                        st.success("✅ Quest deleted")
+                                        st.rerun()
                         
                         st.markdown('</div>', unsafe_allow_html=True)
         
