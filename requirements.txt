@@ -3,3 +3,5 @@ pandas
 plotly==5.20.0
 jdatetime
 openpyxl
+supabase
+python-dotenv
