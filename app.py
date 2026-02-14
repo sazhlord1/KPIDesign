@@ -29,8 +29,8 @@ from supabase import create_client, Client
 @st.cache_resource
 def init_supabase():
     """Initialize Supabase connection"""
-    url = st.secrets["https://vqxbmidefmptnbyjgcwi.supabase.co"]
-    key = st.secrets["sb_publishable_VcbSFsLTF2JhIDSwfLxT9w_DDUZ32BC"]
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
 supabase = init_supabase()
